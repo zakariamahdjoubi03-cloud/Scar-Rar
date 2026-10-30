@@ -1,7 +1,7 @@
 # ⚡ SCAR RAR — Next-Generation Archiving Tool
 
 <p align="center">
-  <b>A modern, lightning-fast, and elegant WinRAR alternative designed for Windows 10 & 11.</b><br>
+  <b>A modern, lightning-fast, and elegant ScarRAR alternative designed for Windows 10 & 11.</b><br>
   Built with native high-speed engines, seamless Windows Explorer integration, and a sleek Dark Obsidian interface.
 </p>
 
