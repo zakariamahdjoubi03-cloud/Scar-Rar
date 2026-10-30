@@ -31,9 +31,10 @@ import urllib.request
 import urllib.parse
 import json
 import ssl
+import socket
 import collections
 
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 import zlib
 
@@ -6743,6 +6744,101 @@ class ScarLogViewerDialog:
 
 # ==============================================================================
 
+
+# ==============================================================================
+# IPC Multi-File Aggregator for Windows Explorer Context Menu
+# ==============================================================================
+SCARRAR_ADD_IPC_LOCK = os.path.join(tempfile.gettempdir(), "scarrar_add_ipc.lock")
+
+def try_send_to_primary_aggregator(target_path):
+    """محاولة إرسال مسار الملف المحدد إلى العملية الأساسية التي تم إطلاقها أولاً من ويندوز"""
+    if not os.path.exists(SCARRAR_ADD_IPC_LOCK):
+        return False
+    try:
+        with open(SCARRAR_ADD_IPC_LOCK, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        port = data.get("port")
+        ts = data.get("time", 0)
+        if time.time() - ts > 2.0 or not port:
+            return False
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.4)
+        s.connect(('127.0.0.1', port))
+        msg = json.dumps({"path": target_path}).encode('utf-8')
+        s.sendall(msg)
+        s.recv(1024)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+def collect_batch_targets(initial_targets):
+    """تجميع ذكي لكافة الملفات والمجلدات المحددة في مستكشف ويندوز داخل حزمة موحدة واحدة"""
+    if not initial_targets:
+        return []
+
+    initial_path = initial_targets[0]
+
+    # إذا تم إرسال الملف لعملية أساسية سابقة، نعيد None لنغلق هذه العملية فوراً
+    if try_send_to_primary_aggregator(initial_path):
+        return None
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        server.bind(('127.0.0.1', 0))
+        server.listen(50)
+        port = server.getsockname()[1]
+    except Exception:
+        try:
+            server.close()
+        except Exception:
+            pass
+        return initial_targets
+
+    try:
+        with open(SCARRAR_ADD_IPC_LOCK, "w", encoding="utf-8") as f:
+            json.dump({"port": port, "time": time.time(), "pid": os.getpid()}, f)
+    except Exception:
+        pass
+
+    collected = list(initial_targets)
+    server.settimeout(0.35)
+
+    try:
+        while True:
+            try:
+                client, addr = server.accept()
+                client.settimeout(0.2)
+                data = client.recv(4096)
+                if data:
+                    try:
+                        payload = json.loads(data.decode('utf-8'))
+                        p = payload.get("path")
+                        if p and p not in collected:
+                            collected.append(p)
+                        client.sendall(b'{"status":"ok"}')
+                    except Exception:
+                        pass
+                client.close()
+                server.settimeout(0.20)
+            except socket.timeout:
+                break
+            except Exception:
+                break
+    finally:
+        try:
+            server.close()
+        except Exception:
+            pass
+        try:
+            if os.path.exists(SCARRAR_ADD_IPC_LOCK):
+                os.remove(SCARRAR_ADD_IPC_LOCK)
+        except Exception:
+            pass
+
+    return collected
+
 class ScarRarApp:
 
     def __init__(self, root: tk.Tk):
@@ -10958,8 +11054,19 @@ class ScarRarApp:
     # --------------------------------------------------------------------------
 
     def on_add(self):
-
         """ضغط ملفات جديدة إلى أرشيف مع نافذة تقدم حية ومطابقة 100% لـ WinRAR"""
+        # إذا كان المستخدم في وضع استعراض المجلدات في البرنامج ولديه عناصر محددة:
+        if getattr(self, "is_directory_mode", False):
+            selected = self.get_selected_items()
+            if selected:
+                file_paths = []
+                for s in selected:
+                    fp = os.path.join(self.current_archive_path, s.get('name', ''))
+                    if os.path.exists(fp):
+                        file_paths.append(fp)
+                if file_paths:
+                    self.on_add_with_files(file_paths)
+                    return
 
         f = filedialog.askopenfilenames(
 
@@ -11007,57 +11114,7 @@ class ScarRarApp:
 
 
 
-        dest = filedialog.asksaveasfilename(
-
-            title="Save SCAR RAR Archive As",
-
-            defaultextension=".zip",
-
-            filetypes=[
-
-                ("ZIP Archive (*.zip)", "*.zip"),
-
-                ("RAR Archive (*.rar)", "*.rar"),
-
-                ("ISO Disc Image (*.iso)", "*.iso"),
-
-                ("TAR Archive (*.tar)", "*.tar")
-
-            ]
-
-        )
-
-        if not dest: return
-
-
-
-        archive_name = os.path.basename(dest)
-
-        dlg = ScarProgressDialog(
-
-            parent=self.root,
-
-            title=f"Creating archive ... {archive_name}",
-
-            archive_name=archive_name,
-
-            operation="adding",
-
-            is_add=True
-
-        )
-
-
-
-        threading.Thread(
-
-            target=self._do_add_worker,
-
-            args=(dlg, f, dest),
-
-            daemon=True
-
-        ).start()
+        self.on_add_with_files(list(f))
 
 
 
@@ -12867,9 +12924,34 @@ try {
             self.on_add()
             return
 
+        file_paths = [os.path.abspath(p) for p in file_paths if os.path.exists(p)]
+        if not file_paths:
+            return
+
         first = file_paths[0]
-        base_name = os.path.splitext(os.path.basename(first))[0]
-        parent_dir = os.path.dirname(os.path.abspath(first))
+        first_dir = os.path.dirname(os.path.abspath(first))
+        if all(os.path.dirname(os.path.abspath(p)) == first_dir for p in file_paths):
+            parent_dir = first_dir
+        else:
+            try:
+                parent_dir = os.path.commonpath(file_paths)
+                if not os.path.isdir(parent_dir):
+                    parent_dir = os.path.dirname(parent_dir)
+            except Exception:
+                parent_dir = first_dir
+
+        if len(file_paths) > 1:
+            # عند تحديد مجموعة ملفات في مجلد واحد: جعل اسم الأرشيف مطابقاً لاسم المجلد الحاوي
+            folder_name = os.path.basename(parent_dir.rstrip(r'\/'))
+            if not folder_name:
+                folder_name = "archive"
+            base_name = folder_name
+        else:
+            if os.path.isdir(first):
+                base_name = os.path.basename(first.rstrip(r'\/'))
+            else:
+                base_name = os.path.splitext(os.path.basename(first))[0]
+
         default_dest = os.path.join(parent_dir, f"{base_name}.rar")
 
         if getattr(self, "_headless_add", False):
@@ -12891,6 +12973,10 @@ try {
             if not dest:
                 return
 
+        clean_file_paths = [p for p in file_paths if os.path.abspath(p) != os.path.abspath(dest)]
+        if not clean_file_paths:
+            return
+
         archive_name = os.path.basename(dest)
         dlg = ScarProgressDialog(
             parent=self.root,
@@ -12902,7 +12988,7 @@ try {
 
         threading.Thread(
             target=self._do_add_worker,
-            args=(dlg, file_paths, dest),
+            args=(dlg, clean_file_paths, dest),
             daemon=True
         ).start()
 
@@ -12966,9 +13052,16 @@ try {
             self.root.after(100, lambda: self.on_extract_to(target_items=[], dest_dir=None))
 
         elif mode == "add":
+            collected_paths = collect_batch_targets(target_paths)
+            if not collected_paths:
+                try:
+                    self.root.destroy()
+                except Exception:
+                    pass
+                sys.exit(0)
             self._headless_add = True
             self.root.withdraw()
-            self.root.after(50, lambda: self.on_add_with_files(target_paths))
+            self.root.after(50, lambda: self.on_add_with_files(collected_paths))
 
         else:
             self.open_archive_file(target_path)
@@ -13065,10 +13158,15 @@ try {
 WinRARDarkApp = ScarRarApp
 
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    is_add = any(a in ("-a", "/a", "-A", "/A") for a in args)
+    if is_add:
+        targets = [os.path.abspath(a.strip('"\'')) for a in args if not a.startswith("-") and not a.startswith("/") and os.path.exists(a.strip('"\''))]
+        if targets:
+            if try_send_to_primary_aggregator(targets[0]):
+                sys.exit(0)
 
     root = tk.Tk()
-
     app = ScarRarApp(root)
-
     root.mainloop()
 

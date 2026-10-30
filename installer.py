@@ -45,7 +45,7 @@ try:
 except ImportError:
     winreg = None
 
-CURRENT_INSTALLER_VERSION = "1.0.7"
+CURRENT_INSTALLER_VERSION = "1.0.8"
 
 def apply_window_icon(win, app_or_ico=None):
     if not win:
