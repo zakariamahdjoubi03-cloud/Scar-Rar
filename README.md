@@ -1,11 +1,7 @@
 # ⚡ SCAR RAR — Next-Generation Archiving Tool
 
 <p align="center">
-  <img src="scarrar_icon.ico" width="96" height="96" alt="SCAR RAR Logo" />
-</p>
-
-<p align="center">
-  <b>A modern, lightning-fast, and elegant ScarRAR alternative designed for Windows 10 & 11.</b><br>
+  <b>A modern, lightning-fast, and elegant WinRAR alternative designed for Windows 10 & 11.</b><br>
   Built with native high-speed engines, seamless Windows Explorer integration, and a sleek Dark Obsidian interface.
 </p>
 
@@ -13,7 +9,7 @@
   <a href="#features">Features</a> •
   <a href="#supported-formats">Formats</a> •
   <a href="#installation">Installation</a> •
-  <a href="#screenshots">Screenshots</a> •
+  <a href="#built-with">Built With</a> •
   <a href="#license">License</a>
 </p>
 
@@ -70,5 +66,5 @@ Contributions, feature requests, and bug reports are welcome! Feel free to open 
 
 ## ⚖️ License & Credits
 
-Developed with ❤️ by **scar development**.  
+Developed with ❤️ by **scar development** (`zakariamahdjoubi03-cloud`).  
 UNRAR license and WinRAR compression tools are copyrights of Alexander Roshal.
