@@ -32,7 +32,7 @@ import urllib.parse
 import json
 import ssl
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 import zlib
 
@@ -475,6 +475,19 @@ def create_scar_rar_icons():
     d.ellipse([12, 16, 15, 20], fill='#5865F2')
     d.ellipse([21, 16, 24, 20], fill='#5865F2')
     icons['discord'] = im
+
+    # 12. GitHub Toolbar (Anti-aliased SuperSampled)
+    im_hi = Image.new('RGBA', (144, 144), (0, 0, 0, 0))
+    d_gh = ImageDraw.Draw(im_hi)
+    d_gh.rounded_rectangle([12, 16, 132, 128], radius=32, fill='#1b1f23', outline='#38bdf8', width=3)
+    d_gh.ellipse([40, 42, 104, 98], fill='#ffffff')
+    d_gh.polygon([(40, 56), (42, 28), (62, 46)], fill='#ffffff')
+    d_gh.polygon([(104, 56), (102, 28), (82, 46)], fill='#ffffff')
+    d_gh.rounded_rectangle([52, 82, 92, 120], radius=12, fill='#ffffff')
+    d_gh.line([(52, 95), (42, 108)], fill='#ffffff', width=8)
+    d_gh.arc([84, 90, 112, 118], start=270, end=90, fill='#ffffff', width=8)
+    resample_filter = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', Image.BILINEAR)
+    icons['github'] = im_hi.resize((36, 36), resample_filter)
 
     # ------------------- Treeview & Folder Browser Icons (18x18) -------------------
     # Up Folder
@@ -2069,11 +2082,18 @@ class ScarAboutDialog:
             tk.Label(r_f, text=val, anchor="w", justify="left", wraplength=340, bg="#111827", fg=col, font=("Segoe UI", 9)).pack(side="left", fill="x", expand=True)
 
         disc_f = tk.Frame(details_card, bg="#111827")
-        disc_f.pack(fill="x", pady=(8, 0))
+        disc_f.pack(fill="x", pady=(6, 0))
         tk.Label(disc_f, text="Discord:", width=11, anchor="w", bg="#111827", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(side="left")
         btn_disc = tk.Label(disc_f, text="https://discord.com/users/989509070908174406", bg="#111827", fg="#38bdf8", cursor="hand2", font=("Segoe UI", 9, "underline"))
         btn_disc.pack(side="left")
         btn_disc.bind("<Button-1>", lambda e: webbrowser.open("https://discord.com/users/989509070908174406"))
+
+        gh_f = tk.Frame(details_card, bg="#111827")
+        gh_f.pack(fill="x", pady=(4, 0))
+        tk.Label(gh_f, text="GitHub:", width=11, anchor="w", bg="#111827", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(side="left")
+        btn_gh = tk.Label(gh_f, text="https://github.com/zakariamahdjoubi03-cloud/Scar-Rar", bg="#111827", fg="#38bdf8", cursor="hand2", font=("Segoe UI", 9, "underline"))
+        btn_gh.pack(side="left")
+        btn_gh.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/zakariamahdjoubi03-cloud/Scar-Rar"))
 
         btn_bar = tk.Frame(container, bg="#0c1017")
         btn_bar.pack(fill="x")
@@ -2084,6 +2104,13 @@ class ScarAboutDialog:
             relief="flat", bd=0, padx=12, pady=4, cursor="hand2", font=("Segoe UI", 9, "bold"),
             command=lambda: webbrowser.open("https://discord.com/users/989509070908174406")
         ).pack(side="left")
+
+        tk.Button(
+            btn_bar, text="GitHub Repo", bg="#24292e", fg="#ffffff",
+            activebackground="#1b1f23", activeforeground="#ffffff",
+            relief="flat", bd=0, padx=12, pady=4, cursor="hand2", font=("Segoe UI", 9, "bold"),
+            command=lambda: webbrowser.open("https://github.com/zakariamahdjoubi03-cloud/Scar-Rar")
+        ).pack(side="left", padx=(6, 0))
 
         tk.Button(
             btn_bar, text="OK", bg="#0284c7", fg="#ffffff",
@@ -3504,6 +3531,7 @@ I18N = {
         "tb_info": "Info",
 
         "tb_discord": "Discord",
+        "tb_github": "GitHub",
 
         # Treeview Headings
 
@@ -3578,6 +3606,7 @@ I18N = {
         # Help Menu Items
 
         "mi_discord_community": "Discord Community / Profile...",
+        "mi_github_repo": "GitHub Repository...",
 
         "mi_check_updates": "Check for Updates...",
         "mi_about": "About SCAR RAR...",
@@ -3882,6 +3911,7 @@ I18N = {
         "tb_info": "معلومات",
 
         "tb_discord": "ديسكورد",
+        "tb_github": "GitHub",
 
         # Treeview Headings
 
@@ -3956,6 +3986,7 @@ I18N = {
         # Help Menu Items
 
         "mi_discord_community": "مجتمع ديسكورد / المطور...",
+        "mi_github_repo": "مستودع المشروع على GitHub...",
 
         "mi_check_updates": "فحص وجود تحديثات...",
         "mi_about": "عن برنامج SCAR RAR...",
@@ -4310,6 +4341,8 @@ I18N = {
         # Help Menu Items
 
         "mi_discord_community": "Communauté Discord...",
+        "tb_github": "GitHub",
+        "mi_github_repo": "Dépôt GitHub...",
 
         "mi_about": "À propos de SCAR RAR...",
 
@@ -4652,6 +4685,8 @@ I18N = {
         # Help Menu Items
 
         "mi_discord_community": "Comunidad de Discord...",
+        "tb_github": "GitHub",
+        "mi_github_repo": "Repositorio GitHub...",
 
         "mi_about": "Acerca de SCAR RAR...",
 
@@ -8041,6 +8076,7 @@ class ScarRarApp:
         m.add_command(label=self.tr("mi_help_topics"), accelerator="F1", command=lambda: self.on_help_catalog("about"))
         m.add_command(label=self.tr("mi_check_updates"), command=lambda: self.check_for_updates(auto=False))
         m.add_command(label=self.tr("mi_discord_community"), command=self.on_discord)
+        m.add_command(label=self.tr("mi_github_repo"), command=self.on_github)
         m.add_separator()
         m.add_command(label=self.tr("mi_about"), command=self.on_info)
 
@@ -8083,6 +8119,7 @@ class ScarRarApp:
             ("info", "tb_info", self.on_info),
 
             ("discord", "tb_discord", self.on_discord),
+            ("github", "tb_github", self.on_github),
 
         ]
 
@@ -8114,7 +8151,7 @@ class ScarRarApp:
 
                 t = self.get_current_theme()
 
-                bg_c = t["bg_item"] if k != "discord" else "#2b2f4a"
+                bg_c = "#24292e" if k == "github" else ("#2b2f4a" if k == "discord" else t["bg_item"])
 
                 f.configure(bg=bg_c, bd=0, relief="flat", activeborderwidth=0)
 
@@ -12690,6 +12727,10 @@ class ScarRarApp:
 
         url = "https://discord.com/users/989509070908174406"
 
+        webbrowser.open(url)
+
+    def on_github(self):
+        url = "https://github.com/zakariamahdjoubi03-cloud/Scar-Rar"
         webbrowser.open(url)
 
 
