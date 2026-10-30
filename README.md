@@ -46,7 +46,7 @@
 
 ## 🚀 Installation & Setup
 
-1. Download the latest installer from the **[Releases](https://github.com/your-username/scarrar/releases)** page:
+1. Download the latest installer from the **[Releases](https://github.com/zakariamahdjoubi03-cloud/Scar-Rar/releases)** page:
    - `SCAR RAR Setup.exe`
 2. Run the setup wizard to install **SCAR RAR** and register file associations with Windows.
 3. Enjoy an ultra-fast, modern archiving experience!
