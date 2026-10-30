@@ -36,7 +36,7 @@
 | **ZIP** | ✅ Yes | ✅ Yes |
 | **7-Zip (.7z)** | ✅ Yes | ✅ Yes |
 | **TAR / GZ / BZ2 / XZ** | ✅ Yes | ✅ Yes |
-| **ISO** | ✅ Yes | — |
+| **ISO** | ✅ Yes | ✅ Yes |
 
 ---
 
