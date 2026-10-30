@@ -32,7 +32,7 @@ import urllib.parse
 import json
 import ssl
 
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 
 import zlib
 
@@ -11138,7 +11138,8 @@ try {
 
             if dest_ext == ".rar" and rar_exe:
 
-                cmd = [rar_exe, "a", "-y", "-r", "-scf", "-ep1", dest_path] + [os.path.abspath(p) for p in file_paths]
+                # ضغط بأعلى نسبة توفير مساحة ممكنة (أقصى ضغط -m5، أرشيف موحد مصمت -s، خوارزمية RAR5، وقاموس 64MB)
+                cmd = [rar_exe, "a", "-m5", "-s", "-ma5", "-md64m", "-y", "-r", "-scf", "-ep1", dest_path] + [os.path.abspath(p) for p in file_paths]
 
                 proc = subprocess.Popen(
 
@@ -11158,8 +11159,6 @@ try {
                 )
 
                 dlg.proc = proc
-
-                _start_monitor_thread(proc, stage_dir)
 
                 for line in iter(proc.stdout.readline, ''):
 
@@ -11257,7 +11256,7 @@ try {
 
             # مسار ZIP القياسي المتدفق بدقة بايت-بايت
 
-            with zipfile.ZipFile(dest_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            with zipfile.ZipFile(dest_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
 
                 for src_path, arcname in files_to_pack:
 

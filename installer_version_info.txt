@@ -2,8 +2,8 @@
 #
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 5, 0),
-    prodvers=(1, 0, 5, 0),
+    filevers=(1, 0, 6, 0),
+    prodvers=(1, 0, 6, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -19,12 +19,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'scar development'),
             StringStruct('FileDescription', 'SCAR RAR Setup & Maintenance'),
-            StringStruct('FileVersion', '1.0.5.0'),
+            StringStruct('FileVersion', '1.0.6.0'),
             StringStruct('InternalName', 'SCAR RAR Setup'),
             StringStruct('LegalCopyright', 'Copyright (c) 2026 scar development. All Rights Reserved.'),
             StringStruct('OriginalFilename', 'SCAR RAR Setup.exe'),
             StringStruct('ProductName', 'SCAR RAR'),
-            StringStruct('ProductVersion', '1.0.5.0'),
+            StringStruct('ProductVersion', '1.0.6.0'),
             StringStruct('Comments', 'Setup and installation wizard for SCAR RAR.')
           ]
         )
