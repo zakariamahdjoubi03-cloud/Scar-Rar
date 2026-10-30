@@ -32,7 +32,7 @@ import urllib.parse
 import json
 import ssl
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 import zlib
 
@@ -5167,14 +5167,24 @@ class ScarUpdateDialog:
     def __init__(self, parent_app, release_data):
         self.app = parent_app
         self.release_data = release_data
-        self.tag_name = release_data.get("tag_name", "v1.0.1")
-        self.body_text = release_data.get("body", "").strip() or "No release notes provided."
+        self.tag_name = release_data.get("tag_name", "v1.0.5")
+        raw_body = release_data.get("body", "").strip()
+
+        if not raw_body:
+            raw_body = (
+                f"### \u2728 Release {self.tag_name} is now available!\n\n"
+                "\u2022 Create and Compress standard ISO Disc Images (.iso) natively\n"
+                "\u2022 GitHub official repository quick access icon on main toolbar\n"
+                "\u2022 Automated in-app update downloader with live progress\n"
+                "\u2022 Full performance and security enhancements"
+            )
+        self.body_text = raw_body
 
         self.win = tk.Toplevel(self.app.root)
-        self.win.title(self.app.tr("update_avail_title"))
+        self.win.title(self.app.tr("update_avail_title", "New Update Available"))
         apply_window_icon(self.win, self.app)
-        self.win.geometry("540x440")
-        self.win.minsize(500, 380)
+        self.win.geometry("580x490")
+        self.win.minsize(520, 420)
         self.win.configure(bg="#0c1017")
         self.win.transient(self.app.root)
 
@@ -5185,36 +5195,55 @@ class ScarUpdateDialog:
         except Exception:
             pass
 
-        self._center_window(540, 440)
+        self._center_window(580, 490)
 
-        # Header Frame
-        hdr_frame = tk.Frame(self.win, bg="#111827", padx=16, pady=14)
-        hdr_frame.pack(fill="x", padx=12, pady=(12, 8))
+        # 1. Header Frame (Top)
+        hdr_frame = tk.Frame(self.win, bg="#111827", padx=18, pady=14)
+        hdr_frame.pack(fill="x", padx=14, pady=(14, 8))
 
         top_row = tk.Frame(hdr_frame, bg="#111827")
         top_row.pack(fill="x")
 
-        tk.Label(top_row, text="🚀", bg="#111827", fg="#38bdf8", font=("Segoe UI", 16)).pack(side="left", padx=(0, 8))
-        tk.Label(top_row, text=self.app.tr("update_avail_title"), bg="#111827", fg="#ffffff", font=("Segoe UI", 13, "bold")).pack(side="left")
+        tk.Label(top_row, text="\U0001f680", bg="#111827", fg="#38bdf8", font=("Segoe UI", 16)).pack(side="left", padx=(0, 8))
+        tk.Label(top_row, text=self.app.tr("update_avail_title", "New Update Available"),
+                 bg="#111827", fg="#ffffff", font=("Segoe UI", 13, "bold")).pack(side="left")
 
         ver_row = tk.Frame(hdr_frame, bg="#111827")
         ver_row.pack(fill="x", pady=(6, 0))
 
         curr_txt = f"v{APP_VERSION}"
         new_txt = self.tag_name
-        ver_label = f"Current: {curr_txt}   ➔   New: {new_txt}"
+        ver_label = f"Current: {curr_txt}   \u2794   New: {new_txt}"
         tk.Label(ver_row, text=ver_label, bg="#111827", fg="#38bdf8", font=("Segoe UI", 10, "bold")).pack(anchor="w")
 
-        # Release Notes Label
-        tk.Label(self.win, text=self.app.tr("update_notes_label", "What's new in this release:"),
-                 bg="#0c1017", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(4, 4))
+        # 2. Bottom Buttons Bar (Docked bottom FIRST to guarantee visibility)
+        btn_bar = tk.Frame(self.win, bg="#0c1017", height=52)
+        btn_bar.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
 
-        # Scrollable Release notes box
+        btn_update = tk.Button(btn_bar, text=self.app.tr("btn_update_now", "Update Now"), bg="#0284c7", fg="#ffffff",
+                               activebackground="#0369a1", activeforeground="#ffffff",
+                               font=("Segoe UI", 10, "bold"), bd=0, relief="flat", padx=24, pady=7,
+                               cursor="hand2", command=self.on_update_clicked)
+        btn_update.pack(side="right", padx=(8, 0))
+
+        btn_later = tk.Button(btn_bar, text=self.app.tr("btn_later", "Later"), bg="#1e293b", fg="#cbd5e1",
+                              activebackground="#334155", activeforeground="#ffffff",
+                              font=("Segoe UI", 10), bd=0, relief="flat", padx=18, pady=7,
+                              cursor="hand2", command=self.win.destroy)
+        btn_later.pack(side="right", padx=6)
+
+        # 3. Label for Release Notes
+        notes_lbl_txt = self.app.tr("update_notes_label", "What's new in this release:")
+        tk.Label(self.win, text=notes_lbl_txt,
+                 bg="#0c1017", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(4, 6))
+
+        # 4. Scrollable Release notes box (Expands in remaining space)
         notes_frame = tk.Frame(self.win, bg="#16202e", highlightbackground="#1e293b", highlightthickness=1)
-        notes_frame.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        notes_frame.pack(fill="both", expand=True, padx=14, pady=(0, 10))
 
         txt = tk.Text(notes_frame, bg="#16202e", fg="#e2e8f0", insertbackground="#38bdf8",
-                      font=("Segoe UI", 9), relief="flat", bd=0, padx=10, pady=8, wrap="word")
+                      font=("Segoe UI", 9), relief="flat", bd=0, padx=12, pady=10, wrap="word",
+                      spacing1=2, spacing3=2)
         scroll = ttk.Scrollbar(notes_frame, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=scroll.set)
         txt.pack(side="left", fill="both", expand=True)
@@ -5222,22 +5251,6 @@ class ScarUpdateDialog:
 
         txt.insert("1.0", self.body_text)
         txt.config(state="disabled")
-
-        # Bottom Buttons Bar (Docked bottom)
-        btn_bar = tk.Frame(self.win, bg="#0c1017", height=46)
-        btn_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 12))
-
-        btn_update = tk.Button(btn_bar, text=self.app.tr("btn_update_now"), bg="#0066cc", fg="#ffffff",
-                               activebackground="#0052a3", activeforeground="#ffffff",
-                               font=("Segoe UI", 9, "bold"), bd=0, relief="flat", padx=20, pady=6,
-                               cursor="hand2", command=self.on_update_clicked)
-        btn_update.pack(side="right", padx=(8, 0))
-
-        btn_later = tk.Button(btn_bar, text=self.app.tr("btn_later"), bg="#1e293b", fg="#94a3b8",
-                              activebackground="#334155", activeforeground="#ffffff",
-                              font=("Segoe UI", 9), bd=0, relief="flat", padx=16, pady=6,
-                              cursor="hand2", command=self.win.destroy)
-        btn_later.pack(side="right", padx=6)
 
     def _center_window(self, w, h):
         try:
@@ -6838,13 +6851,13 @@ class ScarRarApp:
 
 
 
-    def tr(self, key: str, **kwargs) -> str:
+    def tr(self, key: str, default: str = None, **kwargs) -> str:
 
         lang = getattr(self, "current_lang", "English")
 
         lang_dict = I18N.get(lang, I18N["English"])
 
-        template = lang_dict.get(key, I18N["English"].get(key, key))
+        template = lang_dict.get(key, I18N["English"].get(key, default or key))
 
         if kwargs:
 
