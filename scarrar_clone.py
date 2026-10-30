@@ -27,8 +27,12 @@ import os
 import sys
 
 import time
+import urllib.request
+import urllib.parse
+import json
+import ssl
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 import zlib
 
@@ -5320,7 +5324,14 @@ class ScarDownloadUpdateDialog:
         dest_file = os.path.join(temp_dir, self.asset_name)
         try:
             req = urllib.request.Request(self.download_url, headers={"User-Agent": "SCAR-RAR-Updater"})
-            with urllib.request.urlopen(req, timeout=30) as response, open(dest_file, "wb") as out_f:
+            try:
+                ctx = ssl.create_default_context()
+                resp = urllib.request.urlopen(req, timeout=30, context=ctx)
+            except Exception:
+                ctx = ssl._create_unverified_context()
+                resp = urllib.request.urlopen(req, timeout=30, context=ctx)
+
+            with resp as response, open(dest_file, "wb") as out_f:
                 total_len = response.getheader("Content-Length")
                 total_size = int(total_len) if total_len and total_len.isdigit() else self.asset_size
                 downloaded = 0
@@ -7984,7 +7995,14 @@ class ScarRarApp:
                     url,
                     headers={"User-Agent": "SCAR-RAR-App", "Accept": "application/vnd.github.v3+json"}
                 )
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                try:
+                    ctx = ssl.create_default_context()
+                    resp = urllib.request.urlopen(req, timeout=12, context=ctx)
+                except Exception:
+                    ctx = ssl._create_unverified_context()
+                    resp = urllib.request.urlopen(req, timeout=12, context=ctx)
+
+                with resp:
                     data = json.loads(resp.read().decode("utf-8"))
 
                 tag = data.get("tag_name", "").strip()
@@ -7998,11 +8016,16 @@ class ScarRarApp:
                         self.tr("update_latest_title"),
                         self.tr("update_latest_msg", ver=APP_VERSION)
                     ))
-            except Exception:
+            except Exception as ex:
+                try:
+                    with open("scarrar_activity.log", "a", encoding="utf-8") as lf:
+                        lf.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Update check failed: {ex}\n")
+                except Exception:
+                    pass
                 if not auto:
                     self.root.after(0, lambda: messagebox.showwarning(
                         self.tr("update_latest_title"),
-                        self.tr("update_error_msg")
+                        f"{self.tr('update_error_msg')}\n({type(ex).__name__}: {ex})"
                     ))
 
         threading.Thread(target=_worker, daemon=True).start()
