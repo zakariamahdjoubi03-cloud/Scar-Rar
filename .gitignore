@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller & Build outputs
+build/
+dist/
+*.spec.bak
+
+# Node.js
+node_modules/
+
+# Logs
+*.log
+scarrar_activity.log
+
+# Large generated binaries (GitHub rejects files > 100 MB)
+SCAR RAR Setup.exe
+scar_payload.enc
+uninstall.exe
+
+# Temporary & Flow dumps
+scratch/
+*.flow
+
+# Tools & Local Environment
+rea/
+.agents/

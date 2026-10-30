@@ -1,0 +1,41 @@
+{
+    "default_format": ".rar",
+    "default_extract_dir": "",
+    "play_sound": true,
+    "low_priority": false,
+    "confirm_overwrite": true,
+    "auto_close_dialog": false,
+    "compression_method": "Normal",
+    "dict_size": "32 MB",
+    "rar_version": "RAR5",
+    "verify_crc": false,
+    "security_protection": false,
+    "attr_security": false,
+    "theme": "Dark Obsidian",
+    "language": "English",
+    "viewer_font_size": 10,
+    "wrap_viewer_text": true,
+    "associations": [
+        ".rar",
+        ".zip",
+        ".7z",
+        ".iso",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz"
+    ],
+    "context_menu": true,
+    "recent_paths": [
+        "C:\\Users\\zakar\\OneDrive\\Bureau",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\extract_dummy.rar",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_copy_dest",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_archive.zip",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_copy_src",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_clipboard_dir",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_dest_dir",
+        "C:\\Users\\zakar\\OneDrive\\Bureau\\app engen\\scarrar\\scratch\\test_ox.zip",
+        "C:\\Program Files"
+    ]
+}
