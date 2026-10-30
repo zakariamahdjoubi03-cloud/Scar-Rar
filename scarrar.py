@@ -32,7 +32,7 @@ import urllib.parse
 import json
 import ssl
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 import zlib
 
@@ -10899,6 +10899,8 @@ class ScarRarApp:
 
                 ("RAR Archive (*.rar)", "*.rar"),
 
+                ("ISO Disc Image (*.iso)", "*.iso"),
+
                 ("TAR Archive (*.tar)", "*.tar")
 
             ]
@@ -10975,7 +10977,147 @@ class ScarRarApp:
 
             dest_ext = os.path.splitext(dest_path)[1].lower()
 
+            # مسار إنشاء وضغط ملف صورة القرص ISO 9660 / Joliet / UDF القياسي
+            if dest_ext == ".iso":
+                dlg.status_text = "Preparing files for ISO disc image..."
+                staging_dir = tempfile.mkdtemp(prefix="scarrar_iso_stage_")
+                try:
+                    for src in file_paths:
+                        if dlg.cancel_event.is_set():
+                            break
+                        base = os.path.basename(src.rstrip('\\/'))
+                        dest_item = os.path.join(staging_dir, base)
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dest_item)
+                        elif os.path.isfile(src):
+                            try:
+                                os.link(src, dest_item)
+                            except Exception:
+                                shutil.copy2(src, dest_item)
 
+                    if dlg.cancel_event.is_set():
+                        shutil.rmtree(staging_dir, ignore_errors=True)
+                        if os.path.exists(dest_path):
+                            try:
+                                os.remove(dest_path)
+                            except Exception:
+                                pass
+                        self.root.after(0, lambda: dlg.finish_operation(False, "Compression cancelled."))
+                        return
+
+                    iso_script = '''param([string]$SourceDir, [string]$TargetIso, [string]$VolumeName = 'SCARRAR_ISO')
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+
+public class ComStreamCopy {
+    public static void Copy(object comStream, string targetPath) {
+        IStream istream = (IStream)comStream;
+        using (FileStream fs = File.Open(targetPath, FileMode.Create, FileAccess.Write, FileShare.None)) {
+            byte[] buffer = new byte[1048576];
+            IntPtr readPtr = Marshal.AllocHGlobal(sizeof(int));
+            long written = 0;
+            try {
+                while (true) {
+                    istream.Read(buffer, buffer.Length, readPtr);
+                    int read = Marshal.ReadInt32(readPtr);
+                    if (read <= 0) break;
+                    fs.Write(buffer, 0, read);
+                    written += read;
+                    Console.WriteLine("PROGRESS:" + written);
+                }
+            } finally {
+                Marshal.FreeHGlobal(readPtr);
+            }
+        }
+    }
+}
+'@
+
+try {
+    $fsi = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
+    $fsi.FreeMediaBlocks = 0
+    $fsi.FileSystemsToCreate = 7
+    $fsi.VolumeName = $VolumeName
+    if (Test-Path $SourceDir -PathType Container) {
+        $fsi.Root.AddTree($SourceDir, $false)
+    }
+    $resultImage = $fsi.CreateResultImage()
+    $stream = $resultImage.ImageStream
+    [ComStreamCopy]::Copy($stream, $TargetIso)
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($resultImage) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsi) | Out-Null
+    Write-Host "ISO_SUCCESS"
+} catch {
+    Write-Host "ISO_ERROR: $($_.Exception.Message)"
+    exit 1
+}
+'''
+                    ps1_path = os.path.join(tempfile.gettempdir(), "scarrar_iso_builder.ps1")
+                    with open(ps1_path, "w", encoding="utf-8") as psf:
+                        psf.write(iso_script)
+
+                    raw_vol = os.path.splitext(os.path.basename(dest_path))[0]
+                    vol_name = re.sub(r'[^A-Za-z0-9_]', '_', raw_vol)[:30] or "SCARRAR_ISO"
+
+                    proc = subprocess.Popen([
+                        "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                        "-File", ps1_path,
+                        "-SourceDir", staging_dir,
+                        "-TargetIso", dest_path,
+                        "-VolumeName", vol_name
+                    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, creationflags=CREATE_NO_WINDOW)
+
+                    dlg.proc = proc
+
+                    for line in iter(proc.stdout.readline, ''):
+                        if dlg.cancel_event.is_set():
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                            break
+                        dlg.pause_event.wait()
+                        clean_line = line.strip()
+                        if not clean_line:
+                            continue
+                        if clean_line.startswith("PROGRESS:"):
+                            try:
+                                written = int(clean_line.split(":")[1])
+                                pct = min(99, int((written / max(1, total_input_bytes)) * 100))
+                                dlg.file_pct = pct
+                                dlg.total_pct = pct
+                                dlg.processed_bytes = written
+                                dlg.total_bytes = total_input_bytes
+                                if total_input_bytes > 0:
+                                    ratio = int((written / max(1, total_input_bytes)) * 100)
+                                    dlg.compression_ratio = f"{ratio}%"
+                            except Exception:
+                                pass
+
+                    proc.wait()
+
+                    if dlg.cancel_event.is_set():
+                        if os.path.exists(dest_path):
+                            try:
+                                os.remove(dest_path)
+                            except Exception:
+                                pass
+                        self.root.after(0, lambda: dlg.finish_operation(False, "Compression cancelled."))
+                        return
+
+                    if proc.returncode == 0 and os.path.exists(dest_path):
+                        dlg.file_pct = 100
+                        dlg.total_pct = 100
+                        self.root.after(0, lambda: self._on_add_finished(dlg, dest_path))
+                    else:
+                        self.root.after(0, lambda: dlg.finish_operation(False, f"ISO creation failed with exit code: {proc.returncode}"))
+                    return
+                finally:
+                    shutil.rmtree(staging_dir, ignore_errors=True)
 
             # مسار RAR إذا اختار المستخدم صيغة .rar ومحرك Rar.exe متوفر
 
@@ -12623,6 +12765,7 @@ class ScarRarApp:
                 filetypes=[
                     ("RAR Archive (*.rar)", "*.rar"),
                     ("ZIP Archive (*.zip)", "*.zip"),
+                    ("ISO Disc Image (*.iso)", "*.iso"),
                     ("TAR Archive (*.tar)", "*.tar")
                 ]
             )
