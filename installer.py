@@ -45,7 +45,7 @@ try:
 except ImportError:
     winreg = None
 
-CURRENT_INSTALLER_VERSION = "1.0.8"
+CURRENT_INSTALLER_VERSION = "1.0.9"
 
 def apply_window_icon(win, app_or_ico=None):
     if not win:
@@ -1547,7 +1547,7 @@ def register_file_associations(exe_path, icon_path=None, register_assoc=True, re
 
 
 
-                set_key(winreg.HKEY_CURRENT_USER, f"{file_casc}\\shell\\02_AddRar\\command", default=f'"{exe_path}" -a "%1"')
+                set_key(winreg.HKEY_CURRENT_USER, f"{file_casc}\\shell\\02_AddRar\\command", default=f'"{exe_path}" -adirect "%1"')
 
 
 
@@ -1591,7 +1591,7 @@ def register_file_associations(exe_path, icon_path=None, register_assoc=True, re
 
 
 
-                set_key(winreg.HKEY_CURRENT_USER, f"{dir_casc}\\shell\\02_AddRar\\command", default=f'"{exe_path}" -a "%1"')
+                set_key(winreg.HKEY_CURRENT_USER, f"{dir_casc}\\shell\\02_AddRar\\command", default=f'"{exe_path}" -adirect "%1"')
 
 
 

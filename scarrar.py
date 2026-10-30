@@ -34,7 +34,7 @@ import ssl
 import socket
 import collections
 
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 
 import zlib
 
@@ -2124,6 +2124,416 @@ class ScarAboutDialog:
         self.win.bind("<Return>", lambda e: self.win.destroy())
         self.win.bind("<Escape>", lambda e: self.win.destroy())
 
+
+
+class ScarArchiveParametersDialog:
+    """نافذة 'اسم الأرشيف ومعلماته' (Archive name and parameters) المطابقة 100% لـ WinRAR بالوضع الليلي العصري"""
+    def __init__(self, parent, file_paths, default_dest, on_confirm=None, on_cancel=None, app=None):
+        self.parent = parent
+        self.file_paths = file_paths
+        self.default_dest = default_dest
+        self.on_confirm = on_confirm
+        self.on_cancel = on_cancel
+        self.app = app
+
+        self.password = ""
+        self.encrypt_headers = True
+
+        self.win = tk.Toplevel(parent)
+        self.win.title("Archive name and parameters")
+        self.win.geometry("540x550")
+        self.win.resizable(False, False)
+        self.win.configure(bg="#121620")
+
+        apply_window_icon(self.win, app or parent)
+
+        try:
+            self.win.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        except Exception:
+            pass
+
+        self._center_window(540, 550)
+
+        if not getattr(self.app, "_headless_add", False):
+            try:
+                self.win.transient(parent)
+            except Exception:
+                pass
+        try:
+            self.win.grab_set()
+        except Exception:
+            pass
+
+        self.setup_styles()
+        self.build_ui()
+
+    def _center_window(self, w, h):
+        try:
+            sw = self.win.winfo_screenwidth()
+            sh = self.win.winfo_screenheight()
+            if self.parent and self.parent.state() != "withdrawn" and self.parent.winfo_width() > 100:
+                px = self.parent.winfo_rootx()
+                py = self.parent.winfo_rooty()
+                pw = self.parent.winfo_width()
+                ph = self.parent.winfo_height()
+                x = px + (pw - w) // 2
+                y = py + (ph - h) // 2
+            else:
+                x = (sw - w) // 2
+                y = (sh - h) // 2
+            self.win.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+    def setup_styles(self):
+        self.style = ttk.Style()
+        try:
+            self.style.theme_use("clam")
+        except Exception:
+            pass
+
+        self.style.configure("ScarOpt.TNotebook", background="#121620", borderwidth=0,
+                             bordercolor="#1e293b", darkcolor="#1e293b", lightcolor="#1e293b")
+        self.style.configure("ScarOpt.TNotebook.client", background="#0f172a", borderwidth=0,
+                             bordercolor="#1e293b", darkcolor="#1e293b", lightcolor="#1e293b")
+        self.style.configure("ScarOpt.TNotebook.Tab", background="#1a2234", foreground="#94a3b8",
+                             bordercolor="#1e293b", darkcolor="#1e293b", lightcolor="#1e293b",
+                             padding=[10, 5], font=("Segoe UI", 9))
+        self.style.map("ScarOpt.TNotebook.Tab",
+                       background=[("selected", "#0f172a")],
+                       foreground=[("selected", "#38bdf8")],
+                       bordercolor=[("selected", "#1e293b")])
+
+        self.style.configure("Scar.TCombobox", fieldbackground="#080c14", background="#1e293b",
+                             foreground="#ffffff", bordercolor="#1e293b", lightcolor="#1e293b",
+                             darkcolor="#1e293b", arrowcolor="#38bdf8")
+
+    def build_ui(self):
+        self.nb = ttk.Notebook(self.win, style="ScarOpt.TNotebook")
+        self.nb.pack(fill="both", expand=True, padx=10, pady=(10, 6))
+
+        self.tab_general = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_advanced = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_options = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_files = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_backup = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_time = tk.Frame(self.nb, bg="#0f172a")
+        self.tab_comment = tk.Frame(self.nb, bg="#0f172a")
+
+        self.nb.add(self.tab_general, text=" General ")
+        self.nb.add(self.tab_advanced, text=" Advanced ")
+        self.nb.add(self.tab_options, text=" Options ")
+        self.nb.add(self.tab_files, text=" Files ")
+        self.nb.add(self.tab_backup, text=" Backup ")
+        self.nb.add(self.tab_time, text=" Time ")
+        self.nb.add(self.tab_comment, text=" Comment ")
+
+        self._build_general_tab()
+        self._build_advanced_tab()
+        self._build_options_tab()
+        self._build_files_tab()
+        self._build_backup_tab()
+        self._build_time_tab()
+        self._build_comment_tab()
+
+        # Bottom Button Bar
+        btn_bar = tk.Frame(self.win, bg="#121620", height=42)
+        btn_bar.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
+
+        tk.Button(btn_bar, text="Help", bg="#1e293b", fg="#f8fafc", activebackground="#334155",
+                  activeforeground="#ffffff", relief="flat", width=9, cursor="hand2",
+                  font=("Segoe UI", 9), command=self._on_help).pack(side="right", padx=(6, 0))
+
+        tk.Button(btn_bar, text="Cancel", command=self._on_cancel, bg="#1e293b", fg="#f8fafc",
+                  activebackground="#334155", activeforeground="#ffffff", relief="flat",
+                  width=9, cursor="hand2", font=("Segoe UI", 9)).pack(side="right", padx=(6, 0))
+
+        tk.Button(btn_bar, text="OK", command=self._on_ok, bg="#38bdf8", fg="#0c1017",
+                  activebackground="#0284c7", activeforeground="#ffffff", relief="flat",
+                  width=10, cursor="hand2", font=("Segoe UI", 9, "bold")).pack(side="right")
+
+        self.win.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.win.bind("<Return>", lambda e: self._on_ok())
+        self.win.bind("<Escape>", lambda e: self._on_cancel())
+
+    def _build_general_tab(self):
+        pad_frame = tk.Frame(self.tab_general, bg="#0f172a", padx=12, pady=10)
+        pad_frame.pack(fill="both", expand=True)
+
+        # 1. Archive name
+        tk.Label(pad_frame, text="Archive name", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 9)).pack(anchor="w")
+        name_row = tk.Frame(pad_frame, bg="#0f172a")
+        name_row.pack(fill="x", pady=(2, 8))
+
+        self.dest_var = tk.StringVar(value=self.default_dest)
+        self.ent_dest = tk.Entry(name_row, textvariable=self.dest_var, bg="#080c14", fg="#ffffff",
+                                 insertbackground="#38bdf8", relief="flat", bd=0,
+                                 highlightbackground="#1e293b", highlightcolor="#38bdf8", highlightthickness=1,
+                                 font=("Segoe UI", 9))
+        self.ent_dest.pack(side="left", fill="x", expand=True, ipady=3, padx=(0, 6))
+
+        tk.Button(name_row, text="Browse...", command=self._browse_dest, bg="#1e293b", fg="#f8fafc",
+                  activebackground="#334155", activeforeground="#ffffff", relief="flat", width=10,
+                  cursor="hand2", font=("Segoe UI", 9)).pack(side="right")
+
+        # 2. Profiles and Update Mode row
+        row2 = tk.Frame(pad_frame, bg="#0f172a")
+        row2.pack(fill="x", pady=(0, 10))
+
+        left_p = tk.Frame(row2, bg="#0f172a")
+        left_p.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        tk.Label(left_p, text="Default Profile", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Button(left_p, text="Profiles...", bg="#1e293b", fg="#94a3b8", activebackground="#334155",
+                  activeforeground="#ffffff", relief="flat", cursor="hand2", font=("Segoe UI", 8)).pack(fill="x", ipady=1)
+
+        right_u = tk.Frame(row2, bg="#0f172a")
+        right_u.pack(side="right", fill="x", expand=True)
+        tk.Label(right_u, text="Update mode", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        self.update_mode_var = tk.StringVar(value="Add and replace files")
+        cb_upd = ttk.Combobox(right_u, textvariable=self.update_mode_var, state="readonly",
+                              values=["Add and replace files", "Add and update files", "Freshen existing files only", "Synchronize archive contents"],
+                              style="Scar.TCombobox", font=("Segoe UI", 8))
+        cb_upd.pack(fill="x")
+
+        # 3. Middle split: Archive Format (left) & Archiving Options (right)
+        mid_row = tk.Frame(pad_frame, bg="#0f172a")
+        mid_row.pack(fill="x", pady=(0, 8))
+
+        # Format Box
+        box_fmt = tk.LabelFrame(mid_row, text=" Archive format ", bg="#0f172a", fg="#38bdf8",
+                                bd=0, highlightbackground="#1e293b", highlightthickness=1, font=("Segoe UI", 8, "bold"))
+        box_fmt.pack(side="left", fill="both", expand=True, padx=(0, 6), ipady=4)
+
+        self.format_var = tk.StringVar(value="rar")
+        for val, lbl in [("rar", "RAR"), ("zip", "ZIP"), ("iso", "ISO")]:
+            rb = tk.Radiobutton(box_fmt, text=lbl, value=val, variable=self.format_var,
+                                command=self._on_format_changed, bg="#0f172a", fg="#f8fafc",
+                                selectcolor="#080c14", activebackground="#0f172a", activeforeground="#38bdf8",
+                                font=("Segoe UI", 9))
+            rb.pack(anchor="w", padx=10, pady=2)
+
+        # Options Box
+        box_opts = tk.LabelFrame(mid_row, text=" Archiving options ", bg="#0f172a", fg="#38bdf8",
+                                 bd=0, highlightbackground="#1e293b", highlightthickness=1, font=("Segoe UI", 8, "bold"))
+        box_opts.pack(side="right", fill="both", expand=True, padx=(6, 0), ipady=2)
+
+        self.delete_after_var = tk.BooleanVar(value=False)
+        self.sfx_var = tk.BooleanVar(value=False)
+        self.solid_var = tk.BooleanVar(value=True)
+        self.recovery_var = tk.BooleanVar(value=False)
+        self.test_var = tk.BooleanVar(value=False)
+        self.lock_var = tk.BooleanVar(value=False)
+
+        for text, var in [
+            ("Delete files after archiving", self.delete_after_var),
+            ("Create SFX archive", self.sfx_var),
+            ("Create solid archive", self.solid_var),
+            ("Add recovery record", self.recovery_var),
+            ("Test archived files", self.test_var),
+            ("Lock archive", self.lock_var)
+        ]:
+            cb = tk.Checkbutton(box_opts, text=text, variable=var, bg="#0f172a", fg="#f8fafc",
+                                selectcolor="#080c14", activebackground="#0f172a", activeforeground="#38bdf8",
+                                font=("Segoe UI", 8))
+            cb.pack(anchor="w", padx=8, pady=1)
+
+        # 4. Compression method & Dictionary size
+        row4 = tk.Frame(pad_frame, bg="#0f172a")
+        row4.pack(fill="x", pady=(0, 8))
+
+        m_box = tk.Frame(row4, bg="#0f172a")
+        m_box.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        tk.Label(m_box, text="Compression method", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        self.method_var = tk.StringVar(value="Best")
+        cb_m = ttk.Combobox(m_box, textvariable=self.method_var, state="readonly",
+                            values=["Store", "Fastest", "Fast", "Normal", "Good", "Best"],
+                            style="Scar.TCombobox", font=("Segoe UI", 9))
+        cb_m.pack(fill="x")
+
+        d_box = tk.Frame(row4, bg="#0f172a")
+        d_box.pack(side="right", fill="x", expand=True, padx=(6, 0))
+        tk.Label(d_box, text="Dictionary size", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        self.dict_size_var = tk.StringVar(value="64 MB")
+        cb_d = ttk.Combobox(d_box, textvariable=self.dict_size_var, state="readonly",
+                            values=["32 MB", "64 MB", "128 MB", "256 MB", "1024 MB"],
+                            style="Scar.TCombobox", font=("Segoe UI", 9))
+        cb_d.pack(fill="x")
+
+        # 5. Split volumes & Set Password button
+        row5 = tk.Frame(pad_frame, bg="#0f172a")
+        row5.pack(fill="x", pady=(4, 0))
+
+        s_box = tk.Frame(row5, bg="#0f172a")
+        s_box.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        tk.Label(s_box, text="Split to volumes, size", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        s_inner = tk.Frame(s_box, bg="#0f172a")
+        s_inner.pack(fill="x")
+        self.split_var = tk.StringVar(value="")
+        tk.Entry(s_inner, textvariable=self.split_var, bg="#080c14", fg="#ffffff",
+                 relief="flat", highlightbackground="#1e293b", highlightthickness=1,
+                 font=("Segoe UI", 9)).pack(side="left", fill="x", expand=True, ipady=2, padx=(0, 4))
+        self.split_unit_var = tk.StringVar(value="MB")
+        ttk.Combobox(s_inner, textvariable=self.split_unit_var, state="readonly", values=["Bytes", "KB", "MB", "GB"],
+                     width=5, style="Scar.TCombobox", font=("Segoe UI", 8)).pack(side="right")
+
+        p_box = tk.Frame(row5, bg="#0f172a")
+        p_box.pack(side="right", fill="x", expand=True, padx=(6, 0))
+        tk.Label(p_box, text="Security & Protection", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 8)).pack(anchor="w")
+        self.btn_pwd = tk.Button(p_box, text="Set password...", command=self._set_password,
+                                 bg="#1e293b", fg="#38bdf8", activebackground="#334155",
+                                 activeforeground="#ffffff", relief="flat", cursor="hand2",
+                                 font=("Segoe UI", 9, "bold"))
+        self.btn_pwd.pack(fill="x", ipady=2)
+
+    def _build_advanced_tab(self):
+        f = tk.Frame(self.tab_advanced, bg="#0f172a", padx=16, pady=16)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text="Recovery record percentage: 3%", bg="#0f172a", fg="#f8fafc", font=("Segoe UI", 9)).pack(anchor="w", pady=4)
+        tk.Label(f, text="Execution Priority: Normal", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 9)).pack(anchor="w", pady=4)
+
+    def _build_options_tab(self):
+        f = tk.Frame(self.tab_options, bg="#0f172a", padx=16, pady=16)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text="File attribute retention: Enabled", bg="#0f172a", fg="#f8fafc", font=("Segoe UI", 9)).pack(anchor="w", pady=4)
+
+    def _build_files_tab(self):
+        f = tk.Frame(self.tab_files, bg="#0f172a", padx=12, pady=12)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text=f"Files to add: {len(self.file_paths)} items", bg="#0f172a", fg="#38bdf8", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
+        txt = tk.Text(f, bg="#080c14", fg="#94a3b8", bd=0, highlightbackground="#1e293b", highlightthickness=1, font=("Consolas", 8), height=14)
+        txt.pack(fill="both", expand=True)
+        for p in self.file_paths:
+            txt.insert("end", f"{p}\n")
+        txt.configure(state="disabled")
+
+    def _build_backup_tab(self):
+        f = tk.Frame(self.tab_backup, bg="#0f172a", padx=16, pady=16)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text="Backup options: Standard", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 9)).pack(anchor="w")
+
+    def _build_time_tab(self):
+        f = tk.Frame(self.tab_time, bg="#0f172a", padx=16, pady=16)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text="Preserve high-resolution timestamps: Enabled (NTFS precision)", bg="#0f172a", fg="#f8fafc", font=("Segoe UI", 9)).pack(anchor="w")
+
+    def _build_comment_tab(self):
+        f = tk.Frame(self.tab_comment, bg="#0f172a", padx=12, pady=12)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text="Enter archive comment:", bg="#0f172a", fg="#94a3b8", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 4))
+        self.txt_comment = tk.Text(f, bg="#080c14", fg="#ffffff", insertbackground="#38bdf8", bd=0,
+                                   highlightbackground="#1e293b", highlightthickness=1, font=("Segoe UI", 9), height=14)
+        self.txt_comment.pack(fill="both", expand=True)
+
+    def _on_format_changed(self):
+        cur = self.dest_var.get()
+        base, _ = os.path.splitext(cur)
+        ext = self.format_var.get()
+        self.dest_var.set(f"{base}.{ext}")
+
+    def _browse_dest(self):
+        cur = self.dest_var.get()
+        parent_dir = os.path.dirname(os.path.abspath(cur)) if cur else ""
+        initialfile = os.path.basename(cur) if cur else "archive.rar"
+        fmt = self.format_var.get()
+        new_path = filedialog.asksaveasfilename(
+            parent=self.win,
+            title="Save Archive As",
+            initialdir=parent_dir,
+            initialfile=initialfile,
+            defaultextension=f".{fmt}",
+            filetypes=[
+                (f"{fmt.upper()} Archive", f"*.{fmt}"),
+                ("All Files", "*.*")
+            ]
+        )
+        if new_path:
+            self.dest_var.set(new_path)
+
+    def _set_password(self):
+        pwd_win = tk.Toplevel(self.win)
+        pwd_win.title("Set password")
+        pwd_win.geometry("340x220")
+        pwd_win.resizable(False, False)
+        pwd_win.configure(bg="#0c1017")
+        pwd_win.transient(self.win)
+        try:
+            pwd_win.grab_set()
+        except Exception:
+            pass
+
+        f = tk.Frame(pwd_win, bg="#0c1017", padx=16, pady=16)
+        f.pack(fill="both", expand=True)
+
+        tk.Label(f, text="Enter password:", bg="#0c1017", fg="#ffffff", font=("Segoe UI", 9)).pack(anchor="w")
+        p_var = tk.StringVar(value=self.password)
+        ent = tk.Entry(f, textvariable=p_var, show="*", bg="#16202e", fg="#ffffff", relief="flat",
+                       highlightbackground="#1e293b", highlightthickness=1, font=("Segoe UI", 10))
+        ent.pack(fill="x", pady=(4, 10), ipady=3)
+        ent.focus_set()
+
+        enc_hdr_var = tk.BooleanVar(value=self.encrypt_headers)
+        tk.Checkbutton(f, text="Encrypt file names", variable=enc_hdr_var, bg="#0c1017", fg="#f8fafc",
+                       selectcolor="#16202e", activebackground="#0c1017", activeforeground="#38bdf8",
+                       font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 14))
+
+        def _on_save():
+            self.password = p_var.get().strip()
+            self.encrypt_headers = enc_hdr_var.get()
+            if self.password:
+                self.btn_pwd.config(text="Password Set [x]")
+            else:
+                self.btn_pwd.config(text="Set password...")
+            pwd_win.destroy()
+
+        b_row = tk.Frame(f, bg="#0c1017")
+        b_row.pack(side="bottom", fill="x")
+        tk.Button(b_row, text="Cancel", command=pwd_win.destroy, bg="#1e293b", fg="#f8fafc", relief="flat", width=8).pack(side="right", padx=(6, 0))
+        tk.Button(b_row, text="OK", command=_on_save, bg="#38bdf8", fg="#0c1017", relief="flat", width=8, font=("Segoe UI", 9, "bold")).pack(side="right")
+
+    def _on_help(self):
+        try:
+            help_dlg = ScarHelpCatalogDialog(self.win, initial_topic="quick_archive_gui", app=self.app)
+        except Exception:
+            pass
+
+    def _on_ok(self):
+        dest = self.dest_var.get().strip()
+        if not dest:
+            messagebox.showerror("Error", "Please specify an archive name.", parent=self.win)
+            return
+
+        comment = self.txt_comment.get("1.0", "end-1c").strip()
+        opts = {
+            "dest_path": dest,
+            "format": self.format_var.get(),
+            "method": self.method_var.get(),
+            "solid": self.solid_var.get(),
+            "delete_after": self.delete_after_var.get(),
+            "sfx": self.sfx_var.get(),
+            "recovery": self.recovery_var.get(),
+            "test_after": self.test_var.get(),
+            "lock": self.lock_var.get(),
+            "dict_size": self.dict_size_var.get(),
+            "password": self.password,
+            "encrypt_headers": self.encrypt_headers,
+            "comment": comment
+        }
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+        if self.on_confirm:
+            self.on_confirm(opts)
+
+    def _on_cancel(self):
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+        if self.on_cancel:
+            self.on_cancel()
 
 class ExtractionOptionsDialog:
     def __init__(self, parent, archive_path, initial_dest=None, on_confirm=None, on_cancel=None, app=None):
@@ -11118,7 +11528,9 @@ class ScarRarApp:
 
 
 
-    def _do_add_worker(self, dlg, file_paths, dest_path):
+    def _do_add_worker(self, dlg, file_paths, dest_path, opts=None):
+        if opts is None:
+            opts = {}
 
         try:
 
@@ -11301,9 +11713,54 @@ try {
             rar_exe = ArchiveEngine.get_rar_path()
 
             if dest_ext == ".rar" and rar_exe:
+                method_str = opts.get("method", "Best")
+                method_map = {
+                    "Store": "-m0",
+                    "Fastest": "-m1",
+                    "Fast": "-m2",
+                    "Normal": "-m3",
+                    "Good": "-m4",
+                    "Best": "-m5"
+                }
+                m_flag = method_map.get(method_str, "-m5")
+                solid_flag = "-s" if opts.get("solid", True) else "-s-"
 
-                # ضغط بأعلى نسبة توفير مساحة ممكنة (أقصى ضغط -m5، أرشيف موحد مصمت -s، خوارزمية RAR5، وقاموس 64MB)
-                cmd = [rar_exe, "a", "-m5", "-s", "-ma5", "-md64m", "-y", "-r", "-scf", "-ep1", dest_path] + [os.path.abspath(p) for p in file_paths]
+                dict_map = {
+                    "32 MB": "-md32m",
+                    "64 MB": "-md64m",
+                    "128 MB": "-md128m",
+                    "256 MB": "-md256m",
+                    "1024 MB": "-md1024m"
+                }
+                dict_flag = dict_map.get(opts.get("dict_size", "64 MB"), "-md64m")
+
+                cmd = [rar_exe, "a", m_flag, solid_flag, "-ma5", dict_flag, "-y", "-r", "-scf", "-ep1"]
+                if opts.get("delete_after"):
+                    cmd.append("-df")
+                if opts.get("sfx"):
+                    cmd.append("-sfx")
+                if opts.get("recovery"):
+                    cmd.append("-rr3p")
+                if opts.get("lock"):
+                    cmd.append("-k")
+                pwd = opts.get("password")
+                if pwd:
+                    if opts.get("encrypt_headers", True):
+                        cmd.append(f"-hp{pwd}")
+                    else:
+                        cmd.append(f"-p{pwd}")
+                cmt = opts.get("comment", "").strip()
+                if cmt:
+                    try:
+                        cmt_f = os.path.join(tempfile.gettempdir(), f"scarrar_cmt_{int(time.time())}.txt")
+                        with open(cmt_f, "w", encoding="utf-8") as f:
+                            f.write(cmt)
+                        cmd.append(f"-z{cmt_f}")
+                    except Exception:
+                        pass
+
+                cmd.append(dest_path)
+                cmd.extend([os.path.abspath(p) for p in file_paths])
 
                 proc = subprocess.Popen(
 
@@ -12918,8 +13375,8 @@ try {
 
 
 
-    def on_add_with_files(self, file_paths):
-        """ضغط ملفات أو مجلدات محددة مباشرة وسريعة (من كليك يمين ويندوز أو سطر الأوامر)"""
+    def on_add_with_files(self, file_paths, show_dialog=True):
+        """ضغط ملفات أو مجلدات محددة مع إظهار نافذة 'Archive name and parameters' الاحترافية"""
         if not file_paths:
             self.on_add()
             return
@@ -12954,43 +13411,49 @@ try {
 
         default_dest = os.path.join(parent_dir, f"{base_name}.rar")
 
-        if getattr(self, "_headless_add", False):
-            # ضغط مباشر وسريع بدون نافذة حفظ وبدون فتح التطبيق
-            dest = default_dest
-        else:
-            dest = filedialog.asksaveasfilename(
-                title="Save SCAR RAR Archive As",
-                initialdir=parent_dir,
-                initialfile=os.path.basename(default_dest),
-                defaultextension=".rar",
-                filetypes=[
-                    ("RAR Archive (*.rar)", "*.rar"),
-                    ("ZIP Archive (*.zip)", "*.zip"),
-                    ("ISO Disc Image (*.iso)", "*.iso"),
-                    ("TAR Archive (*.tar)", "*.tar")
-                ]
-            )
+        def _do_execute_compression(opts):
+            dest = opts.get("dest_path", default_dest)
             if not dest:
                 return
 
-        clean_file_paths = [p for p in file_paths if os.path.abspath(p) != os.path.abspath(dest)]
-        if not clean_file_paths:
-            return
+            clean_file_paths = [p for p in file_paths if os.path.abspath(p) != os.path.abspath(dest)]
+            if not clean_file_paths:
+                return
 
-        archive_name = os.path.basename(dest)
-        dlg = ScarProgressDialog(
-            parent=self.root,
-            title=f"Creating archive ... {archive_name}",
-            archive_name=archive_name,
-            operation="adding",
-            is_add=True
-        )
+            archive_name = os.path.basename(dest)
+            dlg = ScarProgressDialog(
+                parent=self.root,
+                title=f"Creating archive ... {archive_name}",
+                archive_name=archive_name,
+                operation="adding",
+                is_add=True
+            )
 
-        threading.Thread(
-            target=self._do_add_worker,
-            args=(dlg, clean_file_paths, dest),
-            daemon=True
-        ).start()
+            threading.Thread(
+                target=self._do_add_worker,
+                args=(dlg, clean_file_paths, dest, opts),
+                daemon=True
+            ).start()
+
+        def _on_cancel():
+            if getattr(self, "_headless_add", False):
+                try:
+                    self.root.destroy()
+                except Exception:
+                    pass
+                sys.exit(0)
+
+        if show_dialog:
+            ScarArchiveParametersDialog(
+                parent=self.root,
+                file_paths=file_paths,
+                default_dest=default_dest,
+                on_confirm=_do_execute_compression,
+                on_cancel=_on_cancel,
+                app=self
+            )
+        else:
+            _do_execute_compression({"dest_path": default_dest, "method": "Best", "solid": True})
 
     def handle_command_line_args(self):
         """التعامل الفوري والذكي مع وسائط سطر الأوامر وملفات الأرشيف الممررة من ويندوز"""
@@ -13013,6 +13476,8 @@ try {
                 mode = "extract_dialog"
             elif clean in ("-a", "/a", "-A", "/A"):
                 mode = "add"
+            elif clean in ("-adirect", "/adirect", "-ad", "/ad", "-afast"):
+                mode = "add_direct"
             elif not clean.startswith("-") and not clean.startswith("/"):
                 targets.append(clean)
 
@@ -13051,7 +13516,7 @@ try {
             self.open_archive_file(target_path)
             self.root.after(100, lambda: self.on_extract_to(target_items=[], dest_dir=None))
 
-        elif mode == "add":
+        elif mode in ("add", "add_direct"):
             collected_paths = collect_batch_targets(target_paths)
             if not collected_paths:
                 try:
@@ -13061,7 +13526,8 @@ try {
                 sys.exit(0)
             self._headless_add = True
             self.root.withdraw()
-            self.root.after(50, lambda: self.on_add_with_files(collected_paths))
+            show_dlg = (mode == "add")
+            self.root.after(50, lambda: self.on_add_with_files(collected_paths, show_dialog=show_dlg))
 
         else:
             self.open_archive_file(target_path)
