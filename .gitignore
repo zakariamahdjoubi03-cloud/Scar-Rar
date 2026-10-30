@@ -16,6 +16,8 @@ node_modules/
 scarrar_activity.log
 
 # Large generated binaries (GitHub rejects files > 100 MB)
+SCAR RAR Setup*.exe
+SCAR RAR v*.exe
 SCAR RAR Setup.exe
 scar_payload.enc
 uninstall.exe

@@ -45,7 +45,7 @@ try:
 except ImportError:
     winreg = None
 
-CURRENT_INSTALLER_VERSION = "1.0.0"
+CURRENT_INSTALLER_VERSION = "1.0.1"
 
 def apply_window_icon(win, app_or_ico=None):
     if not win:
@@ -1950,6 +1950,11 @@ class ScarInstallerApp:
         self._start_fast_background_scanner()
 
         self.show_step(0)
+
+        # التحقق من تشغيل المثبت في وضع التحديث التلقائي الصامت
+        cmd_args = [a.upper() for a in sys.argv[1:]]
+        if "/UPDATE" in cmd_args or "--UPDATE" in cmd_args or "/AUTO" in cmd_args or "-UPDATE" in cmd_args:
+            self.root.after(350, self.start_update)
 
 
 
@@ -4308,6 +4313,7 @@ class ScarInstallerApp:
 
         if self.current_step == "maintenance":
             self.show_step(0)
+
         elif isinstance(self.current_step, int) and self.current_step > 0:
             self.show_step(self.current_step - 1)
 

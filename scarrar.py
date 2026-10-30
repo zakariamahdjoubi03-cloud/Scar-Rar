@@ -28,7 +28,7 @@ import sys
 
 import time
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 import zlib
 
@@ -3575,7 +3575,16 @@ I18N = {
 
         "mi_discord_community": "Discord Community / Profile...",
 
+        "mi_check_updates": "Check for Updates...",
         "mi_about": "About SCAR RAR...",
+        "update_avail_title": "New Update Available",
+        "update_latest_title": "SCAR RAR Updates",
+        "update_latest_msg": "You are already using the latest version of SCAR RAR (v{ver}).",
+        "update_error_msg": "Could not connect to update server. Please check your internet connection.",
+        "btn_update_now": "Update Now",
+        "btn_later": "Later",
+        "update_downloading": "Downloading SCAR RAR Update...",
+        "update_notes_label": "What's new in this release:",
 
         # Context Menu
 
@@ -3944,8 +3953,16 @@ I18N = {
 
         "mi_discord_community": "مجتمع ديسكورد / المطور...",
 
-        "mi_about": "حول تطبيق SCAR RAR...",
-
+        "mi_check_updates": "فحص وجود تحديثات...",
+        "mi_about": "عن برنامج SCAR RAR...",
+        "update_avail_title": "يتوفر تحديث جديد",
+        "update_latest_title": "تحديثات SCAR RAR",
+        "update_latest_msg": "أنت تستخدم بالفعل أحدث إصدار من التطبيق (v{ver}).",
+        "update_error_msg": "تعذر الاتصال بخادم التحديثات. يرجى التحقق من اتصالك بالإنترنت.",
+        "btn_update_now": "تحديث الآن",
+        "btn_later": "لاحقاً",
+        "update_downloading": "جارٍ تنزيل تحديث SCAR RAR...",
+        "update_notes_label": "ما الجديد في هذا التحديث:",
         # Context Menu
 
         "ctx_add": "إضافة إلى الأرشيف...",
@@ -5088,6 +5105,288 @@ class SettingsManager:
 
 
 
+
+
+def parse_version_tuple(ver_str: str):
+    """تحويل نص الإصدار مثل '1.0.1' أو 'v1.0.1' إلى tuple رقمي للمقارنة الدقيقة"""
+    try:
+        clean = re.sub(r'^[vV]', '', str(ver_str).strip())
+        parts = []
+        for p in clean.split('.'):
+            digits = re.findall(r'\d+', p)
+            if digits:
+                parts.append(int(digits[0]))
+            else:
+                parts.append(0)
+        return tuple(parts)
+    except Exception:
+        return (0, 0, 0)
+
+
+class ScarUpdateDialog:
+    """نافذة تنبيه بوجود تحديث جديد لتطبيق SCAR RAR بالوضع الليلي العصري"""
+    def __init__(self, parent_app, release_data):
+        self.app = parent_app
+        self.release_data = release_data
+        self.tag_name = release_data.get("tag_name", "v1.0.1")
+        self.body_text = release_data.get("body", "").strip() or "No release notes provided."
+
+        self.win = tk.Toplevel(self.app.root)
+        self.win.title(self.app.tr("update_avail_title"))
+        apply_window_icon(self.win, self.app)
+        self.win.geometry("540x440")
+        self.win.minsize(500, 380)
+        self.win.configure(bg="#0c1017")
+        self.win.transient(self.app.root)
+
+        try:
+            self.win.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        except Exception:
+            pass
+
+        self._center_window(540, 440)
+
+        # Header Frame
+        hdr_frame = tk.Frame(self.win, bg="#111827", padx=16, pady=14)
+        hdr_frame.pack(fill="x", padx=12, pady=(12, 8))
+
+        top_row = tk.Frame(hdr_frame, bg="#111827")
+        top_row.pack(fill="x")
+
+        tk.Label(top_row, text="🚀", bg="#111827", fg="#38bdf8", font=("Segoe UI", 16)).pack(side="left", padx=(0, 8))
+        tk.Label(top_row, text=self.app.tr("update_avail_title"), bg="#111827", fg="#ffffff", font=("Segoe UI", 13, "bold")).pack(side="left")
+
+        ver_row = tk.Frame(hdr_frame, bg="#111827")
+        ver_row.pack(fill="x", pady=(6, 0))
+
+        curr_txt = f"v{APP_VERSION}"
+        new_txt = self.tag_name
+        ver_label = f"Current: {curr_txt}   ➔   New: {new_txt}"
+        tk.Label(ver_row, text=ver_label, bg="#111827", fg="#38bdf8", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+
+        # Release Notes Label
+        tk.Label(self.win, text=self.app.tr("update_notes_label", "What's new in this release:"),
+                 bg="#0c1017", fg="#94a3b8", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(4, 4))
+
+        # Scrollable Release notes box
+        notes_frame = tk.Frame(self.win, bg="#16202e", highlightbackground="#1e293b", highlightthickness=1)
+        notes_frame.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+        txt = tk.Text(notes_frame, bg="#16202e", fg="#e2e8f0", insertbackground="#38bdf8",
+                      font=("Segoe UI", 9), relief="flat", bd=0, padx=10, pady=8, wrap="word")
+        scroll = ttk.Scrollbar(notes_frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=scroll.set)
+        txt.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        txt.insert("1.0", self.body_text)
+        txt.config(state="disabled")
+
+        # Bottom Buttons Bar (Docked bottom)
+        btn_bar = tk.Frame(self.win, bg="#0c1017", height=46)
+        btn_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 12))
+
+        btn_update = tk.Button(btn_bar, text=self.app.tr("btn_update_now"), bg="#0066cc", fg="#ffffff",
+                               activebackground="#0052a3", activeforeground="#ffffff",
+                               font=("Segoe UI", 9, "bold"), bd=0, relief="flat", padx=20, pady=6,
+                               cursor="hand2", command=self.on_update_clicked)
+        btn_update.pack(side="right", padx=(8, 0))
+
+        btn_later = tk.Button(btn_bar, text=self.app.tr("btn_later"), bg="#1e293b", fg="#94a3b8",
+                              activebackground="#334155", activeforeground="#ffffff",
+                              font=("Segoe UI", 9), bd=0, relief="flat", padx=16, pady=6,
+                              cursor="hand2", command=self.win.destroy)
+        btn_later.pack(side="right", padx=6)
+
+    def _center_window(self, w, h):
+        try:
+            sw = self.win.winfo_screenwidth()
+            sh = self.win.winfo_screenheight()
+            x = (sw - w) // 2
+            y = (sh - h) // 2
+            self.win.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+    def on_update_clicked(self):
+        assets = self.release_data.get("assets", [])
+        target_asset = None
+        for a in assets:
+            name = a.get("name", "")
+            if name.endswith(".exe") and "Setup" in name:
+                target_asset = a
+                break
+        if not target_asset:
+            for a in assets:
+                if a.get("name", "").endswith(".exe"):
+                    target_asset = a
+                    break
+        if not target_asset and assets:
+            target_asset = assets[0]
+
+        if not target_asset:
+            url = self.release_data.get("html_url", "https://github.com/zakariamahdjoubi03-cloud/Scar-Rar/releases")
+            webbrowser.open(url)
+            self.win.destroy()
+            return
+
+        self.win.destroy()
+        ScarDownloadUpdateDialog(self.app, target_asset)
+
+
+class ScarDownloadUpdateDialog:
+    """نافذة تنزيل التحديث تلقائياً بشريط تقدم متفاعل وتثبيته فوراً"""
+    def __init__(self, parent_app, asset_data):
+        self.app = parent_app
+        self.asset_data = asset_data
+        self.download_url = asset_data.get("browser_download_url", "")
+        self.asset_name = asset_data.get("name", "SCAR.RAR.Setup.exe")
+        self.asset_size = asset_data.get("size", 0)
+
+        self.is_cancelled = False
+        self.start_time = time.time()
+
+        self.win = tk.Toplevel(self.app.root)
+        self.win.title(self.app.tr("update_downloading"))
+        apply_window_icon(self.win, self.app)
+        self.win.geometry("460x220")
+        self.win.resizable(False, False)
+        self.win.configure(bg="#0c1017")
+        self.win.transient(self.app.root)
+
+        try:
+            self.win.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        except Exception:
+            pass
+
+        self._center_window(460, 220)
+
+        main_box = tk.Frame(self.win, bg="#0c1017", padx=16, pady=16)
+        main_box.pack(fill="both", expand=True)
+
+        self.lbl_title = tk.Label(main_box, text=f"Downloading {self.asset_name}...", bg="#0c1017", fg="#ffffff",
+                                  font=("Segoe UI", 10, "bold"), anchor="w")
+        self.lbl_title.pack(fill="x", pady=(0, 6))
+
+        info_row = tk.Frame(main_box, bg="#0c1017")
+        info_row.pack(fill="x", pady=(0, 8))
+
+        self.lbl_speed = tk.Label(info_row, text="Connecting...", bg="#0c1017", fg="#94a3b8", font=("Segoe UI", 9), anchor="w")
+        self.lbl_speed.pack(side="left")
+
+        self.lbl_pct = tk.Label(info_row, text="0%", bg="#0c1017", fg="#38bdf8", font=("Segoe UI", 9, "bold"), anchor="e")
+        self.lbl_pct.pack(side="right")
+
+        self.p_canvas = tk.Canvas(main_box, height=14, bg="#16202e", highlightbackground="#1e293b", highlightthickness=1, bd=0)
+        self.p_canvas.pack(fill="x", pady=(0, 14))
+        self.p_bar = self.p_canvas.create_rectangle(0, 0, 0, 14, fill="#0284c7", width=0)
+
+        btn_bar = tk.Frame(main_box, bg="#0c1017")
+        btn_bar.pack(fill="x", side="bottom")
+
+        btn_cancel = tk.Button(btn_bar, text=self.app.tr("btn_cancel"), bg="#1e293b", fg="#94a3b8",
+                               activebackground="#334155", activeforeground="#ffffff",
+                               font=("Segoe UI", 9), bd=0, relief="flat", padx=16, pady=4,
+                               cursor="hand2", command=self.on_cancel)
+        btn_cancel.pack(side="right")
+
+        self.win.protocol("WM_DELETE_WINDOW", self.on_cancel)
+
+        threading.Thread(target=self._download_worker, daemon=True).start()
+
+    def _center_window(self, w, h):
+        try:
+            sw = self.win.winfo_screenwidth()
+            sh = self.win.winfo_screenheight()
+            x = (sw - w) // 2
+            y = (sh - h) // 2
+            self.win.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+    def on_cancel(self):
+        self.is_cancelled = True
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
+    def _download_worker(self):
+        temp_dir = tempfile.gettempdir()
+        dest_file = os.path.join(temp_dir, self.asset_name)
+        try:
+            req = urllib.request.Request(self.download_url, headers={"User-Agent": "SCAR-RAR-Updater"})
+            with urllib.request.urlopen(req, timeout=30) as response, open(dest_file, "wb") as out_f:
+                total_len = response.getheader("Content-Length")
+                total_size = int(total_len) if total_len and total_len.isdigit() else self.asset_size
+                downloaded = 0
+                start_t = time.time()
+                last_update_t = start_t
+
+                while not self.is_cancelled:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    out_f.write(chunk)
+                    downloaded += len(chunk)
+                    now = time.time()
+                    if now - last_update_t >= 0.08:
+                        last_update_t = now
+                        elapsed = max(0.001, now - start_t)
+                        speed_mb = (downloaded / (1024 * 1024)) / elapsed
+                        pct = int((downloaded / total_size) * 100) if total_size > 0 else 0
+                        pct = min(100, pct)
+                        down_mb = downloaded / (1024 * 1024)
+                        tot_mb = total_size / (1024 * 1024)
+                        speed_text = f"{down_mb:.1f} MB / {tot_mb:.1f} MB  ({speed_mb:.2f} MB/s)"
+                        self.win.after(0, lambda p=pct, s=speed_text: self._update_ui(p, s))
+
+            if self.is_cancelled:
+                try:
+                    if os.path.exists(dest_file): os.remove(dest_file)
+                except Exception:
+                    pass
+                return
+
+            self.win.after(0, lambda: self._on_download_complete(dest_file))
+        except Exception as ex:
+            if not self.is_cancelled:
+                self.win.after(0, lambda: messagebox.showerror("Update Error", f"Download failed:\n{str(ex)}", parent=self.app.root))
+                try:
+                    self.win.destroy()
+                except Exception:
+                    pass
+
+    def _update_ui(self, pct, speed_text):
+        try:
+            if not self.win.winfo_exists(): return
+            w = self.p_canvas.winfo_width()
+            if w > 1:
+                cur_w = max(0, min(w, int(w * (pct / 100.0))))
+                self.p_canvas.coords(self.p_bar, 0, 0, cur_w, 14)
+            self.lbl_pct.config(text=f"{pct}%")
+            self.lbl_speed.config(text=speed_text)
+        except Exception:
+            pass
+
+    def _on_download_complete(self, installer_path):
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+        try:
+            subprocess.Popen([installer_path, "/UPDATE"])
+            self.app.root.after(300, self.app.root.destroy)
+        except Exception:
+            try:
+                os.startfile(installer_path)
+                self.app.root.after(300, self.app.root.destroy)
+            except Exception:
+                messagebox.showerror("Update Error", f"Could not launch installer:\n{installer_path}")
 
 
 class ScarSettingsDialog:
@@ -6481,6 +6780,7 @@ class ScarRarApp:
         # معالجة وسائط سطر الأوامر أو فتح المشروع التوضيحي
 
         self.handle_command_line_args()
+        self.root.after(2000, lambda: self.check_for_updates(auto=True))
 
 
 
@@ -7675,6 +7975,38 @@ class ScarRarApp:
     def on_help_catalog(self, initial_topic="about"):
         ScarHelpCatalogDialog(self.root, initial_topic=initial_topic, app=self)
 
+    def check_for_updates(self, auto=True):
+        """فحص التحديثات تلقائياً عبر GitHub Releases في الخلفية دون أي تجميد"""
+        def _worker():
+            try:
+                url = "https://api.github.com/repos/zakariamahdjoubi03-cloud/Scar-Rar/releases/latest"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "SCAR-RAR-App", "Accept": "application/vnd.github.v3+json"}
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+
+                tag = data.get("tag_name", "").strip()
+                latest_tuple = parse_version_tuple(tag)
+                curr_tuple = parse_version_tuple(APP_VERSION)
+
+                if latest_tuple > curr_tuple:
+                    self.root.after(0, lambda: ScarUpdateDialog(self, data))
+                elif not auto:
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        self.tr("update_latest_title"),
+                        self.tr("update_latest_msg", ver=APP_VERSION)
+                    ))
+            except Exception:
+                if not auto:
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        self.tr("update_latest_title"),
+                        self.tr("update_error_msg")
+                    ))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def show_help_menu(self, event):
 
         th = self.get_current_theme()
@@ -7684,6 +8016,7 @@ class ScarRarApp:
                     activebackground=th["accent"], activeforeground="#ffffff", bd=0, relief="flat", activeborderwidth=0)
 
         m.add_command(label=self.tr("mi_help_topics"), accelerator="F1", command=lambda: self.on_help_catalog("about"))
+        m.add_command(label=self.tr("mi_check_updates"), command=lambda: self.check_for_updates(auto=False))
         m.add_command(label=self.tr("mi_discord_community"), command=self.on_discord)
         m.add_separator()
         m.add_command(label=self.tr("mi_about"), command=self.on_info)
