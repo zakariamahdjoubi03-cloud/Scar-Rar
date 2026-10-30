@@ -31,8 +31,9 @@ import urllib.request
 import urllib.parse
 import json
 import ssl
+import collections
 
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 import zlib
 
@@ -5289,7 +5290,7 @@ class ScarUpdateDialog:
 
 
 class ScarDownloadUpdateDialog:
-    """نافذة تنزيل التحديث تلقائياً بشريط تقدم متفاعل وتثبيته فوراً"""
+    """نافذة تنزيل التحديث تلقائياً بمحرك تسريع متعدد المسارات Turbo Multi-threaded Downloader وشريط تقدم متفاعل"""
     def __init__(self, parent_app, asset_data):
         self.app = parent_app
         self.asset_data = asset_data
@@ -5374,35 +5375,33 @@ class ScarDownloadUpdateDialog:
             req = urllib.request.Request(self.download_url, headers={"User-Agent": "SCAR-RAR-Updater"})
             try:
                 ctx = ssl.create_default_context()
-                resp = urllib.request.urlopen(req, timeout=30, context=ctx)
+                resp = urllib.request.urlopen(req, timeout=20, context=ctx)
             except Exception:
                 ctx = ssl._create_unverified_context()
-                resp = urllib.request.urlopen(req, timeout=30, context=ctx)
+                resp = urllib.request.urlopen(req, timeout=20, context=ctx)
 
-            with resp as response, open(dest_file, "wb") as out_f:
-                total_len = response.getheader("Content-Length")
-                total_size = int(total_len) if total_len and total_len.isdigit() else self.asset_size
-                downloaded = 0
-                start_t = time.time()
-                last_update_t = start_t
+            actual_url = resp.geturl()
+            total_len = resp.getheader("Content-Length")
+            accept_ranges = resp.getheader("Accept-Ranges", "")
+            resp.close()
 
-                while not self.is_cancelled:
-                    chunk = response.read(65536)
-                    if not chunk:
-                        break
-                    out_f.write(chunk)
-                    downloaded += len(chunk)
-                    now = time.time()
-                    if now - last_update_t >= 0.08:
-                        last_update_t = now
-                        elapsed = max(0.001, now - start_t)
-                        speed_mb = (downloaded / (1024 * 1024)) / elapsed
-                        pct = int((downloaded / total_size) * 100) if total_size > 0 else 0
-                        pct = min(100, pct)
-                        down_mb = downloaded / (1024 * 1024)
-                        tot_mb = total_size / (1024 * 1024)
-                        speed_text = f"{down_mb:.1f} MB / {tot_mb:.1f} MB  ({speed_mb:.2f} MB/s)"
-                        self.win.after(0, lambda p=pct, s=speed_text: self._update_ui(p, s))
+            total_size = int(total_len) if total_len and total_len.isdigit() else self.asset_size
+
+            # If Range requests supported & file is > 5MB, activate Turbo Multi-Threaded Engine (6 parallel streams)
+            can_multithread = (
+                total_size > 5 * 1024 * 1024
+                and ("bytes" in str(accept_ranges).lower() or "githubusercontent" in str(actual_url).lower())
+            )
+
+            if can_multithread:
+                try:
+                    num_threads = 6 if total_size >= 40 * 1024 * 1024 else 4
+                    self._run_multithreaded_download(actual_url, dest_file, total_size, num_threads, ctx)
+                except Exception:
+                    if not self.is_cancelled:
+                        self._run_single_download(actual_url, dest_file, total_size, ctx)
+            else:
+                self._run_single_download(actual_url, dest_file, total_size, ctx)
 
             if self.is_cancelled:
                 try:
@@ -5414,11 +5413,119 @@ class ScarDownloadUpdateDialog:
             self.win.after(0, lambda: self._on_download_complete(dest_file))
         except Exception as ex:
             if not self.is_cancelled:
-                self.win.after(0, lambda: messagebox.showerror("Update Error", f"Download failed:\n{str(ex)}", parent=self.app.root))
+                self.win.after(0, lambda: messagebox.showerror("Update Error", f"Download failed: " + str(ex), parent=self.app.root))
                 try:
                     self.win.destroy()
                 except Exception:
                     pass
+
+    def _run_multithreaded_download(self, url, dest_file, total_size, num_threads, ctx):
+        with open(dest_file, "wb") as f:
+            f.truncate(total_size)
+
+        part_size = total_size // num_threads
+        downloaded_bytes = 0
+        lock = threading.Lock()
+        thread_errors = []
+
+        def part_worker(idx, start_pos, end_pos):
+            nonlocal downloaded_bytes
+            current_pos = start_pos
+            retries = 3
+            while current_pos <= end_pos and not self.is_cancelled and retries > 0:
+                try:
+                    part_req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "SCAR-RAR-Updater", "Range": f"bytes={current_pos}-{end_pos}"}
+                    )
+                    with urllib.request.urlopen(part_req, timeout=25, context=ctx) as part_resp:
+                        with open(dest_file, "r+b") as out_f:
+                            out_f.seek(current_pos)
+                            while not self.is_cancelled and current_pos <= end_pos:
+                                chunk = part_resp.read(262144)
+                                if not chunk:
+                                    break
+                                out_f.write(chunk)
+                                chunk_len = len(chunk)
+                                current_pos += chunk_len
+                                with lock:
+                                    downloaded_bytes += chunk_len
+                    if current_pos > end_pos:
+                        break
+                except Exception as err:
+                    retries -= 1
+                    if retries <= 0:
+                        with lock:
+                            thread_errors.append(err)
+                        break
+                    time.sleep(0.5)
+
+        threads = []
+        for i in range(num_threads):
+            s = i * part_size
+            e = s + part_size - 1 if i < num_threads - 1 else total_size - 1
+            t = threading.Thread(target=part_worker, args=(i, s, e), daemon=True)
+            t.start()
+            threads.append(t)
+
+        start_t = time.time()
+        speed_window = collections.deque(maxlen=10)
+        speed_window.append((start_t, 0))
+        last_ui_t = start_t
+
+        while any(t.is_alive() for t in threads) and not self.is_cancelled:
+            time.sleep(0.08)
+            now = time.time()
+            if now - last_ui_t >= 0.15:
+                last_ui_t = now
+                with lock:
+                    cur_dl = downloaded_bytes
+                speed_window.append((now, cur_dl))
+                old_t, old_dl = speed_window[0]
+                dt = max(0.001, now - old_t)
+                speed_mb = max(0.0, (cur_dl - old_dl) / (1024 * 1024)) / dt
+
+                pct = int((cur_dl / total_size) * 100) if total_size > 0 else 0
+                pct = min(100, pct)
+                down_mb = cur_dl / (1024 * 1024)
+                tot_mb = total_size / (1024 * 1024)
+                speed_text = f"{down_mb:.1f} MB / {tot_mb:.1f} MB  (⚡ {speed_mb:.2f} MB/s Turbo)"
+                self.win.after(0, lambda p=pct, s=speed_text: self._update_ui(p, s))
+
+        for t in threads:
+            t.join(timeout=2.0)
+
+        if thread_errors and not self.is_cancelled:
+            raise thread_errors[0]
+
+    def _run_single_download(self, url, dest_file, total_size, ctx):
+        req = urllib.request.Request(url, headers={"User-Agent": "SCAR-RAR-Updater"})
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as response, open(dest_file, "wb") as out_f:
+            downloaded = 0
+            start_t = time.time()
+            speed_window = collections.deque(maxlen=10)
+            speed_window.append((start_t, 0))
+            last_update_t = start_t
+
+            while not self.is_cancelled:
+                chunk = response.read(262144)
+                if not chunk:
+                    break
+                out_f.write(chunk)
+                downloaded += len(chunk)
+                now = time.time()
+                if now - last_update_t >= 0.15:
+                    last_update_t = now
+                    speed_window.append((now, downloaded))
+                    old_t, old_dl = speed_window[0]
+                    dt = max(0.001, now - old_t)
+                    speed_mb = max(0.0, (downloaded - old_dl) / (1024 * 1024)) / dt
+                    pct = int((downloaded / total_size) * 100) if total_size > 0 else 0
+                    pct = min(100, pct)
+                    down_mb = downloaded / (1024 * 1024)
+                    tot_mb = total_size / (1024 * 1024)
+                    speed_text = f"{down_mb:.1f} MB / {tot_mb:.1f} MB  ({speed_mb:.2f} MB/s)"
+                    self.win.after(0, lambda p=pct, s=speed_text: self._update_ui(p, s))
 
     def _update_ui(self, pct, speed_text):
         try:
@@ -5445,7 +5552,7 @@ class ScarDownloadUpdateDialog:
                 os.startfile(installer_path)
                 self.app.root.after(300, self.app.root.destroy)
             except Exception:
-                messagebox.showerror("Update Error", f"Could not launch installer:\n{installer_path}")
+                messagebox.showerror("Update Error", f"Could not launch installer: " + str(installer_path))
 
 
 class ScarSettingsDialog:
