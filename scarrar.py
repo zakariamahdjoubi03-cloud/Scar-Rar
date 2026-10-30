@@ -34,7 +34,7 @@ import ssl
 import socket
 import collections
 
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.1.0"
 
 import zlib
 
@@ -62,7 +62,19 @@ import shutil
 
 import re
 
-CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
+IS_WINDOWS = sys.platform == 'win32'
+IS_MAC = sys.platform == 'darwin'
+IS_LINUX = sys.platform.startswith('linux')
+
+CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
+
+if not hasattr(ctypes, 'windll'):
+    class _DummyWinDLL:
+        def __getattr__(self, name):
+            return _DummyWinDLL()
+        def __call__(self, *args, **kwargs):
+            return 0
+    ctypes.windll = _DummyWinDLL()
 
 # ==============================================================================
 # Native Windows OLE Drag and Drop Engine (DoDragDrop with CF_HDROP / IDataObject)
