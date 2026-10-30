@@ -29,3 +29,6 @@ scratch/
 # Tools & Local Environment
 rea/
 .agents/
+
+publish_release_*.py
+

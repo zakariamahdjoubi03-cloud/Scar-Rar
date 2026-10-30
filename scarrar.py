@@ -36,7 +36,7 @@ import collections
 
 import datetime
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 import zlib
 
@@ -11654,23 +11654,34 @@ class ScarRarApp:
 
             dest_ext = os.path.splitext(dest_path)[1].lower()
 
-            # مسار إنشاء وضغط ملف صورة القرص ISO 9660 / Joliet / UDF القياسي
+                        # مسار إنشاء وضغط ملف صورة القرص ISO 9660 / Joliet / UDF القياسي بديناميكية وسلاسة فائقة
             if dest_ext == ".iso":
                 dlg.status_text = "Preparing files for ISO disc image..."
                 staging_dir = tempfile.mkdtemp(prefix="scarrar_iso_stage_")
                 try:
-                    for src in file_paths:
+                    # 1. مرحلة تجهيز الملفات مع تحديث اسم الملف ونسبة الإنجاز فوراً
+                    stage_done = 0
+                    for src_path, rel_path in files_to_pack:
                         if dlg.cancel_event.is_set():
                             break
-                        base = os.path.basename(src.rstrip('\\/'))
-                        dest_item = os.path.join(staging_dir, base)
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dest_item)
-                        elif os.path.isfile(src):
+                        dlg.pause_event.wait()
+                        dest_item = os.path.join(staging_dir, rel_path)
+                        os.makedirs(os.path.dirname(dest_item), exist_ok=True)
+                        dlg.current_filename = os.path.basename(src_path)
+                        sz = os.path.getsize(src_path) if os.path.exists(src_path) else 0
+                        try:
+                            os.link(src_path, dest_item)
+                        except Exception:
                             try:
-                                os.link(src, dest_item)
+                                shutil.copy2(src_path, dest_item)
                             except Exception:
-                                shutil.copy2(src, dest_item)
+                                pass
+                        stage_done += sz
+                        stg_pct = min(100, int((stage_done / max(1, total_input_bytes)) * 100))
+                        dlg.file_pct = 100
+                        dlg.total_pct = min(10, stg_pct)
+                        dlg.processed_bytes = int(stage_done * 0.1)
+                        dlg.total_bytes = total_input_bytes
 
                     if dlg.cancel_event.is_set():
                         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -11681,6 +11692,23 @@ class ScarRarApp:
                                 pass
                         self.root.after(0, lambda: dlg.finish_operation(False, "Compression cancelled."))
                         return
+
+                    # خريطة الملفات التراكمية لتحديث اسم الملف ونسبة الملف الحالي ديناميكياً أثناء الكتابة
+                    cum_files = []
+                    cur_b = 0
+                    for fp, rel in files_to_pack:
+                        sz = os.path.getsize(fp) if os.path.exists(fp) else 0
+                        cum_files.append((cur_b, cur_b + sz, sz, fp, rel))
+                        cur_b += sz
+
+                    def get_iso_file_info(written_bytes):
+                        for start, end, sz, fp, rel in cum_files:
+                            if start <= written_bytes < end:
+                                f_pct = min(100, max(0, int(((written_bytes - start) / max(1, sz)) * 100)))
+                                return os.path.basename(rel), f_pct
+                        if cum_files:
+                            return os.path.basename(cum_files[-1][4]), 100
+                        return "Writing ISO image...", 100
 
                     iso_script = '''param([string]$SourceDir, [string]$TargetIso, [string]$VolumeName = 'SCARRAR_ISO')
 Add-Type -TypeDefinition @'
@@ -11693,7 +11721,7 @@ public class ComStreamCopy {
     public static void Copy(object comStream, string targetPath) {
         IStream istream = (IStream)comStream;
         using (FileStream fs = File.Open(targetPath, FileMode.Create, FileAccess.Write, FileShare.None)) {
-            byte[] buffer = new byte[1048576];
+            byte[] buffer = new byte[262144];
             IntPtr readPtr = Marshal.AllocHGlobal(sizeof(int));
             long written = 0;
             try {
@@ -11704,6 +11732,7 @@ public class ComStreamCopy {
                     fs.Write(buffer, 0, read);
                     written += read;
                     Console.WriteLine("PROGRESS:" + written);
+                    Console.Out.Flush();
                 }
             } finally {
                 Marshal.FreeHGlobal(readPtr);
@@ -11765,7 +11794,9 @@ try {
                             try:
                                 written = int(clean_line.split(":")[1])
                                 pct = min(99, int((written / max(1, total_input_bytes)) * 100))
-                                dlg.file_pct = pct
+                                cur_fn, f_pct = get_iso_file_info(written)
+                                dlg.current_filename = cur_fn
+                                dlg.file_pct = f_pct
                                 dlg.total_pct = pct
                                 dlg.processed_bytes = written
                                 dlg.total_bytes = total_input_bytes
@@ -11796,8 +11827,7 @@ try {
                 finally:
                     shutil.rmtree(staging_dir, ignore_errors=True)
 
-            # مسار RAR إذا اختار المستخدم صيغة .rar ومحرك Rar.exe متوفر
-
+            # مسار RAR المطور بتحديث متدفق فوري وديناميكي بدون أي تجميد
             rar_exe = ArchiveEngine.get_rar_path()
 
             if dest_ext == ".rar" and rar_exe:
@@ -11851,117 +11881,102 @@ try {
                 cmd.extend([os.path.abspath(p) for p in file_paths])
 
                 proc = subprocess.Popen(
-
                     cmd,
-
                     stdout=subprocess.PIPE,
-
                     stderr=subprocess.STDOUT,
-
-                    text=True,
-
-                    encoding="utf-8",
-
-                    errors="replace",
-                    bufsize=1,
+                    bufsize=0,
                     creationflags=CREATE_NO_WINDOW
                 )
 
                 dlg.proc = proc
 
-                for line in iter(proc.stdout.readline, ''):
+                file_size_map = {}
+                for fp, rel in files_to_pack:
+                    try:
+                        sz = os.path.getsize(fp)
+                        file_size_map[os.path.basename(fp)] = sz
+                        file_size_map[fp] = sz
+                    except Exception:
+                        pass
 
+                buf = ""
+                cur_fn = ""
+                cur_sz = 1
+                file_start_b = 0
+                cur_tot_b = 0
+
+                while proc.poll() is None or buf:
                     if dlg.cancel_event.is_set():
-
                         try:
-
                             proc.terminate()
-
                         except Exception:
-
                             pass
-
                         break
-
                     dlg.pause_event.wait()
 
-                    clean_line = line.strip()
-
-                    if not clean_line:
-
+                    try:
+                        chunk = proc.stdout.read(64)
+                    except Exception:
+                        break
+                    if not chunk:
+                        time.sleep(0.01)
+                        if proc.poll() is not None:
+                            break
                         continue
 
-
-
-                    m = re.search(r'Adding\s+([^\r\n%]+)', clean_line)
-
-                    if m:
-
-                        raw_fn = m.group(1).strip()
-
-                        raw_fn = re.sub(r'\s+OK.*$', '', raw_fn)
-
-                        if raw_fn:
-
-                            dlg.current_filename = os.path.basename(raw_fn)
-
-
-
-                    pcts = re.findall(r'(\d+)%', clean_line)
-
-                    if pcts:
-
-                        val = int(pcts[-1])
-
-                        dlg.file_pct = val
-
-                        dlg.total_pct = val
-
-
-
-                    if os.path.exists(dest_path):
-
-                        c_size = os.path.getsize(dest_path)
-
-                        ratio = int((c_size / max(1, total_input_bytes)) * 100)
-
-                        dlg.compression_ratio = f"{ratio}%"
-
-
+                    txt = chunk.decode("latin-1", errors="replace")
+                    for ch in txt:
+                        if ch in ('\r', '\n', '\x08'):
+                            clean = buf.strip()
+                            if clean:
+                                if 'Adding' in clean:
+                                    parts = clean.split()
+                                    if len(parts) >= 2 and not parts[-1].isdigit():
+                                        cand = parts[1]
+                                        cur_fn = os.path.basename(cand)
+                                        dlg.current_filename = cur_fn
+                                        cur_sz = file_size_map.get(cur_fn, file_size_map.get(cand, 1))
+                                        file_start_b = cur_tot_b
+                                        dlg.file_pct = 0
+                                elif '%' in clean:
+                                    m = re.search(r'(\d+)%', clean)
+                                    if m:
+                                        tot_pct = int(m.group(1))
+                                        dlg.total_pct = tot_pct
+                                        cur_tot_b = int(total_input_bytes * (tot_pct / 100.0))
+                                        dlg.processed_bytes = cur_tot_b
+                                        dlg.total_bytes = total_input_bytes
+                                        f_pct = min(100, max(0, int(((cur_tot_b - file_start_b) / max(1, cur_sz)) * 100)))
+                                        dlg.file_pct = f_pct
+                                        if os.path.exists(dest_path):
+                                            c_size = os.path.getsize(dest_path)
+                                            ratio = int((c_size / max(1, cur_tot_b)) * 100)
+                                            dlg.compression_ratio = f"{ratio}%"
+                                elif clean == 'OK':
+                                    dlg.file_pct = 100
+                                    file_start_b = cur_tot_b
+                            buf = ""
+                        else:
+                            buf += ch
 
                 proc.wait()
 
-
-
                 if dlg.cancel_event.is_set():
-
                     if os.path.exists(dest_path):
-
                         try:
-
                             os.remove(dest_path)
-
                         except Exception:
-
                             pass
-
                     self.root.after(0, lambda: dlg.finish_operation(False, "Compression cancelled."))
-
                     return
 
-
-
                 if proc.returncode == 0:
-
+                    dlg.file_pct = 100
+                    dlg.total_pct = 100
                     self.root.after(0, lambda: self._on_add_finished(dlg, dest_path))
-
                 else:
-
                     self.root.after(0, lambda: dlg.finish_operation(False, f"Rar error code: {proc.returncode}"))
-
                 return
-
-
 
             # مسار ZIP القياسي المتدفق بدقة بايت-بايت
 
