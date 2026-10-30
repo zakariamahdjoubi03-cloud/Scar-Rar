@@ -8,9 +8,9 @@
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#supported-formats">Formats</a> •
-  <a href="#installation">Installation</a> •
+  <a href="#Installation-&-Setup">Installation</a> •
   <a href="#built-with">Built With</a> •
-  <a href="#license">License</a>
+  <a href="#License-&-Credits">License</a>
 </p>
 
 ---
