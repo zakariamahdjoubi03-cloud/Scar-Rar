@@ -34,7 +34,9 @@ import ssl
 import socket
 import collections
 
-APP_VERSION = "1.1.0"
+import datetime
+
+APP_VERSION = "1.1.1"
 
 import zlib
 
@@ -937,15 +939,15 @@ class ArchiveEngine:
             return unrar_res
 
         # 5. تجربة قراءة الأرشيف عبر Windows libarchive / tar
+        if ext == ".iso":
+            return ArchiveEngine._read_iso(file_path)
+
+        if ext in [".tar", ".gz", ".tgz", ".bz2", ".xz"]:
+            return ArchiveEngine._read_tar(file_path)
+
         tar_res = ArchiveEngine._read_with_tar(file_path)
         if tar_res and tar_res["entries"]:
             return tar_res
-
-        # 6. محاولات إضافية للصيغ الخاصة
-        if ext in [".tar", ".gz", ".tgz", ".bz2", ".xz"]:
-            return ArchiveEngine._read_tar(file_path)
-        elif ext == ".iso":
-            return ArchiveEngine._read_iso(file_path)
 
         raise ValueError(f"تعذر قراءة أو استعراض الأرشيف:\n{os.path.basename(file_path)}")
 
@@ -1122,39 +1124,113 @@ class ArchiveEngine:
         entries = []
         total_size = 0
         with open(file_path, 'rb') as f:
-            f.seek(32768)
-            pvd = f.read(2048)
-            if len(pvd) < 2048 or pvd[0] != 1 or pvd[1:6] != b'CD001':
+            target_vd = None
+            is_joliet = False
+            for sec in range(16, 32):
+                f.seek(sec * 2048)
+                vd = f.read(2048)
+                if len(vd) < 2048:
+                    break
+                vd_type = vd[0]
+                vd_id = vd[1:6]
+                if vd_id == b'CD001':
+                    if vd_type == 2:
+                        esc = vd[88:120]
+                        if esc.startswith(b'%/@') or esc.startswith(b'%/C') or esc.startswith(b'%/E'):
+                            target_vd = vd
+                            is_joliet = True
+                            break
+                    elif vd_type == 1 and target_vd is None:
+                        target_vd = vd
+                        is_joliet = False
+                elif vd_type == 255:
+                    if target_vd is not None:
+                        break
+
+            if target_vd is None:
                 raise ValueError("ليس ملف ISO 9660 صالح!")
-            root_dir = pvd[156:156+34]
-            loc = struct.unpack('<I', root_dir[2:6])[0]
-            length = struct.unpack('<I', root_dir[10:14])[0]
-            f.seek(loc * 2048)
-            data = f.read(length)
-            idx = 0
-            while idx < len(data):
-                rec_len = data[idx]
-                if rec_len == 0:
-                    idx = ((idx // 2048) + 1) * 2048
-                    continue
-                rec = data[idx:idx+rec_len]
-                flags = rec[25]
-                name_len = rec[32]
-                raw_name = rec[33:33+name_len]
-                if raw_name not in [b'\x00', b'\x01']:
-                    name_str = raw_name.decode('utf-8', errors='ignore').split(';')[0]
+
+            root_record = target_vd[156:156+34]
+            root_loc = struct.unpack('<I', root_record[2:6])[0]
+            root_len = struct.unpack('<I', root_record[10:14])[0]
+
+            def parse_dir_recursively(loc, length, rel_prefix=""):
+                f.seek(loc * 2048)
+                dir_bytes = f.read(length)
+                idx = 0
+                sub_dirs = []
+                while idx < len(dir_bytes):
+                    rec_len = dir_bytes[idx]
+                    if rec_len == 0:
+                        idx = ((idx // 2048) + 1) * 2048
+                        continue
+                    rec = dir_bytes[idx:idx+rec_len]
+                    if len(rec) < 33:
+                        idx += rec_len
+                        continue
+                    flags = rec[25]
+                    name_len = rec[32]
+                    raw_name = rec[33:33+name_len]
                     is_dir = bool(flags & 2)
-                    size = struct.unpack('<I', rec[10:14])[0]
-                    entries.append({
-                        "name": name_str,
-                        "size": size if not is_dir else 0,
-                        "type": ArchiveEngine.get_file_type_desc(name_str, is_dir),
-                        "modified": "10/18/2026 12:00",
-                        "is_dir": is_dir
-                    })
-                    total_size += size
-                idx += rec_len
-        return {"format": "ISO 9660 image", "entries": entries, "total_size": total_size}
+                    extent_loc = struct.unpack('<I', rec[2:6])[0]
+                    extent_len = struct.unpack('<I', rec[10:14])[0]
+
+                    date_bytes = rec[18:25]
+                    if len(date_bytes) >= 6:
+                        year = 1900 + date_bytes[0]
+                        month = max(1, min(12, date_bytes[1]))
+                        day = max(1, min(31, date_bytes[2]))
+                        hour = max(0, min(23, date_bytes[3]))
+                        minute = max(0, min(59, date_bytes[4]))
+                        mod_str = f"{month:02d}/{day:02d}/{year:04d} {hour:02d}:{minute:02d}"
+                    else:
+                        mod_str = "10/18/2026 12:00"
+
+                    if raw_name not in [b'\x00', b'\x01']:
+                        if is_joliet:
+                            try:
+                                name_str = raw_name.decode('utf-16be', errors='replace').split(';')[0]
+                            except Exception:
+                                name_str = raw_name.decode('utf-8', errors='replace').split(';')[0]
+                        else:
+                            for enc in ['utf-8', 'cp1256', 'latin-1', 'cp437']:
+                                try:
+                                    name_str = raw_name.decode(enc).split(';')[0]
+                                    break
+                                except Exception:
+                                    continue
+                            else:
+                                name_str = raw_name.decode('ascii', errors='replace').split(';')[0]
+
+                        name_str = name_str.rstrip('.')
+                        full_rel_path = f"{rel_prefix}/{name_str}" if rel_prefix else name_str
+                        full_rel_clean = full_rel_path.replace('\\', '/').strip('/')
+
+                        entries.append({
+                            "name": full_rel_clean,
+                            "full_path": full_rel_clean,
+                            "size": extent_len if not is_dir else 0,
+                            "packed": extent_len if not is_dir else 0,
+                            "type": ArchiveEngine.get_file_type_desc(name_str, is_dir),
+                            "modified": mod_str,
+                            "crc32": "",
+                            "is_dir": is_dir,
+                            "extent_loc": extent_loc,
+                            "extent_len": extent_len
+                        })
+
+                        if is_dir:
+                            sub_dirs.append((extent_loc, extent_len, full_rel_clean))
+                    idx += rec_len
+
+                for sub_loc, sub_len, sub_path in sub_dirs:
+                    parse_dir_recursively(sub_loc, sub_len, sub_path)
+
+            parse_dir_recursively(root_loc, root_len, "")
+            total_size = sum(e["size"] for e in entries if not e["is_dir"])
+
+        fmt_desc = "ISO 9660 / Joliet Disc Image" if is_joliet else "ISO 9660 Disc Image"
+        return {"format": fmt_desc, "entries": entries, "total_size": total_size}
 
     @staticmethod
     def _read_rar_builtin(file_path: str) -> dict:
@@ -12652,6 +12728,78 @@ try {
                 return
 
 
+
+                        # 4. محرك استخراج صور الأقراص ISO المدمج بالكامل (يدعم Joliet والمجلدات المتداخلة والأسماء الطويلة)
+            if ext == ".iso":
+                iso_data = ArchiveEngine._read_iso(archive_path)
+                all_entries = iso_data.get("entries", [])
+                if selected_items:
+                    members = []
+                    for m in all_entries:
+                        m_norm = m['name'].replace('\\', '/').strip('/')
+                        if any(m_norm == p or m_norm.startswith(p + '/') for p in selected_prefixes):
+                            members.append(m)
+                else:
+                    members = all_entries
+
+                total_bytes = sum(m.get("size", 0) for m in members if not m.get("is_dir")) or 1
+                processed_bytes = 0
+                cur_pref = (self.current_folder.rstrip('/') + '/') if self.current_folder else ''
+
+                with open(archive_path, 'rb') as isof:
+                    for member in members:
+                        if dlg.cancel_event.is_set():
+                            break
+                        dlg.pause_event.wait()
+
+                        m_norm = member['name'].replace('\\', '/').strip('/')
+                        if cur_pref and m_norm.startswith(cur_pref):
+                            rel = m_norm[len(cur_pref):]
+                        else:
+                            rel = m_norm
+
+                        target_path = os.path.join(out_dir, rel.replace('/', os.sep))
+                        if member.get('is_dir'):
+                            os.makedirs(target_path, exist_ok=True)
+                            continue
+
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        f_size = member.get('size', 0) or 1
+                        f_done = 0
+                        dlg.current_filename = os.path.basename(member['name'])
+
+                        extent_loc = member.get('extent_loc', 0)
+                        extent_len = member.get('extent_len', member.get('size', 0))
+
+                        isof.seek(extent_loc * 2048)
+                        remain = extent_len
+                        with open(target_path, 'wb') as dst:
+                            while remain > 0:
+                                if dlg.cancel_event.is_set():
+                                    break
+                                dlg.pause_event.wait()
+                                chunk_sz = min(remain, 65536)
+                                chunk = isof.read(chunk_sz)
+                                if not chunk:
+                                    break
+                                dst.write(chunk)
+                                f_done += len(chunk)
+                                remain -= len(chunk)
+                                processed_bytes += len(chunk)
+
+                                dlg.file_pct = min(100, int((f_done / f_size) * 100))
+                                dlg.total_pct = min(100, int((processed_bytes / total_bytes) * 100))
+                                dlg.processed_bytes = processed_bytes
+                                dlg.total_bytes = total_bytes
+
+                                if self.rate_limit_kbs > 0:
+                                    time.sleep(len(chunk) / (self.rate_limit_kbs * 1024))
+
+                if dlg.cancel_event.is_set():
+                    self.root.after(0, lambda: dlg.finish_operation(False, "Extraction cancelled."))
+                else:
+                    self.root.after(0, lambda: self._on_extract_finished(dlg, out_dir, archive_path, opts))
+                return
 
             # 4. محرك Windows libarchive (tar.exe) لجميع التنسيقات الأخرى
 

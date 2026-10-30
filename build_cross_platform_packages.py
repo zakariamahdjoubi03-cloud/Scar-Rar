@@ -9,7 +9,7 @@ import shutil
 import struct
 from PIL import Image
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(ROOT_DIR, "dist")
 os.makedirs(DIST_DIR, exist_ok=True)
